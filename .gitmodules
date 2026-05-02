@@ -1,0 +1,7 @@
+[submodule "guiniverse2/lib/imgui"]
+	path = guiniverse2/lib/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
+[submodule "guiniverse2/lib/glfw"]
+	path = guiniverse2/lib/glfw
+	url = https://github.com/glfw/glfw.git

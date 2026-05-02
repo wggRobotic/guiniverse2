@@ -1,0 +1,32 @@
+volumes:
+  guiniverse_config:
+
+services:
+  guiniverse2:
+    image: guiniverse2:dev
+    build:
+      context: .
+    network_mode: host
+    stop_signal: SIGINT
+
+    environment:
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+      ROS_DOMAIN_ID: "187"
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - guiniverse_config:/guiniverse_config
+
+    devices:
+      - /dev/dri:/dev/dri
+
+    command: >
+      bash -c "
+        . /opt/ros/humble/setup.bash && 
+        . /ros2_ws/install/setup.bash && 
+        cd /guiniverse_config && 
+        export VIDEO_TARGET_IP=$(ip -4 addr show wlo1 | awk '/inet / {print $2}' | cut -d/ -f1) && 
+        ros2 launch guiniverse2 gui.launch.py
+      "
