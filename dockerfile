@@ -46,5 +46,9 @@ RUN apt install -y \
 RUN apt install iproute2 -y
 
 WORKDIR /ros2_ws
-COPY ./guiniverse2 /ros2_ws/src/guiniverse2
+
+RUN git clone https://github.com/wggRobotic/quac-interfaces.git src/quac-interfaces
 RUN . /opt/ros/humble/setup.bash && colcon build
+
+COPY ./guiniverse2 src/guiniverse2
+RUN . /opt/ros/humble/setup.bash && . install/setup.bash && colcon build

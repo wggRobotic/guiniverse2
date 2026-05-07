@@ -33,6 +33,8 @@ public:
     void on_gui_frame(GLFWwindow* window) override;
 private:
 
+    std::string session_folder;
+
     rclcpp::Node::SharedPtr node;
     rclcpp::CallbackGroup::SharedPtr callback_group;
 
@@ -69,6 +71,7 @@ private:
         float joystick_scalar = 0.5f;
 
         bool gas_button = false;
+        bool publish_cmd = true;
     } m_Input;
 
     struct

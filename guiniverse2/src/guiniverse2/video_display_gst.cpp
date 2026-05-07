@@ -1,9 +1,8 @@
+#include "guiniverse2/video_display.hpp"
 #include <guiniverse2/video_display_gst.hpp>
 
-VideoDisplayGST::VideoDisplayGST(int port, bool fv, bool fh, bool r) : gui_image(fv, fh, r)
+VideoDisplayGST::VideoDisplayGST(int port, bool fv, bool fh, bool r, const std::vector<std::string>& bb_topics, rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group) : VideoDisplay("GStreamer UDP port " + std::to_string(port), fv, fh, r, bb_topics, node,  group)
 {
-    panel_name = "GStreamer UDP port " + std::to_string(port);
-
     std::string launch_string =
         "udpsrc port=" + std::to_string(port) + " "
         "caps=\"application/x-rtp, media=video, encoding-name=H264, payload=96\" ! "
@@ -74,13 +73,4 @@ void VideoDisplayGST::pull_frame()
     }
 
     gst_sample_unref(sample);
-}
-
-void VideoDisplayGST::on_gui_frame()
-{
-    if (ImGui::Begin(panel_name.c_str()))
-    {
-        gui_image.draw();
-    }
-    ImGui::End();
 }

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "quac_interfaces/msg/bounding_box.hpp"
 #include <opencv2/core/mat.hpp>
 #include <opencv2/opencv.hpp>
 #include <imgui.h>
+#include <quac_interfaces/msg/bounding_box.hpp>
 
 class GuiImage
 {
@@ -12,8 +14,11 @@ public:
     ~GuiImage();
 
     void draw();
+    void draw_bounding_box(quac_interfaces::msg::BoundingBox& box);
     void set_image(cv::Mat& mat, float mat_par);
+    ImVec2 uv_calc(ImVec2 uv);
 
+private:
     std::mutex mutex;
     cv::Mat image;
 
@@ -27,4 +32,7 @@ public:
     bool flip_vertically;
     bool flip_horizontally;
     bool rotate;
+
+    ImVec2 last_pos;
+    ImVec2 Last_extent;
 };

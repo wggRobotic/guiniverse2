@@ -44,7 +44,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(std_srvs REQUIRED)
+find_package(quac_interfaces REQUIRED)
 
 find_package(OpenGL REQUIRED) 
 find_package(OpenCV REQUIRED)
@@ -61,6 +61,7 @@ add_executable(gui
   src/guiniverse2/video_display_ros.cpp
   src/guiniverse2/imgui_utils.cpp
   src/guiniverse2/gui_image.cpp
+  src/guiniverse2/video_display.cpp
   src/guiniverse2/detection_gallery.cpp
   src/quac/quac.cpp
 )
@@ -90,7 +91,7 @@ ament_target_dependencies(gui
   sensor_msgs
   geometry_msgs
   OpenCV
-  std_srvs
+  quac_interfaces
 )
 
 install(TARGETS gui

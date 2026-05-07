@@ -1,6 +1,3 @@
-volumes:
-  guiniverse_config:
-
 services:
   guiniverse2:
     image: guiniverse2:dev
@@ -17,7 +14,7 @@ services:
 
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - guiniverse_config:/guiniverse_config
+      - ./guiniverse2_data:/guiniverse2_data
 
     devices:
       - /dev/dri:/dev/dri
@@ -26,7 +23,7 @@ services:
       bash -c "
         . /opt/ros/humble/setup.bash && 
         . /ros2_ws/install/setup.bash && 
-        cd /guiniverse_config && 
+        cd /guiniverse2_data && 
         export VIDEO_TARGET_IP=$(ip -4 addr show wlo1 | awk '/inet / {print $2}' | cut -d/ -f1) && 
         ros2 launch guiniverse2 gui.launch.py
       "

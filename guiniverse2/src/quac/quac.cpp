@@ -1,3 +1,4 @@
+#include "imgui.h"
 #include <memory>
 #include <quac/quac.hpp>
 
@@ -5,14 +6,37 @@
 #include <thread>
 #include <guiniverse2/imgui_utils.hpp>
 
+std::string get_time_string()
+{
+    auto t = std::time(nullptr);
+    std::tm tm;
+    localtime_r(&t, &tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d_%H-%M-%S", &tm);
+    return std::string(buf);
+}
+
 Quac::Quac() : 
+    session_folder("runs/quac_" + get_time_string() + "/"),
     node(std::make_shared<rclcpp::Node>("guiniverse", "quac")),
     callback_group(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
-    front_cam(5000, false, false, false),
-    back_cam(5001, false, false, false),
-    thermal_cam(node, callback_group, "thermal_image/compressed", false, false, true),
-    hazmat_gallery(node, callback_group, "hazmat_signs"),
-    qrcode_gallery(node, callback_group, "qrcodes")
+    front_cam(
+        5000, 
+        false, false, false, 
+        {"camera_front/qrcodes/bounding_boxes", "camera_front/hazmat_signs/bounding_boxes", "camera_front/paintrollers/bounding_boxes"},
+        node,
+        callback_group
+    ),
+    back_cam(
+        5001, 
+        false, false, false, 
+        {"camera_back/qrcodes/bounding_boxes", "camera_back/hazmat_signs/bounding_boxes", "camera_back/paintrollers/bounding_boxes"},
+        node,
+        callback_group
+    ),
+    thermal_cam(node, callback_group, "thermal_image/compressed", false, false, true, {}),
+    hazmat_gallery(node, callback_group, "hazmat_signs", session_folder + "hazmat_signs/"),
+    qrcode_gallery(node, callback_group, "qrcodes", session_folder + "qrcodes/")
 {
     rclcpp::SubscriptionOptions options;
     options.callback_group = callback_group;
@@ -52,16 +76,23 @@ Quac::Quac() :
         std::chrono::milliseconds(20),
         [this]() {
             {
-                bool gas = false;
+                bool pub_cmd = false;
                 {
                     std::lock_guard<std::mutex> lock(m_InputMutex);
-                    if (gas = m_Input.gas_button)
+                    pub_cmd = m_Input.publish_cmd; 
+
+                    if (m_Input.gas_button)
                     {
                         m_TwistMessage.linear.x =  m_Input.main_axes.y * m_Input.scalar;
                         m_TwistMessage.angular.z = m_Input.main_axes.x * m_Input.scalar * (m_Input.main_axes.y * m_Input.scalar < 0 ? -1.f : 1.f) * 2.f;
                     }
+                    else 
+                    {
+                        m_TwistMessage.linear.x = 0;
+                        m_TwistMessage.angular.z = 0;
+                    }
                 }
-                if (gas) m_TwistPublisher->publish(m_TwistMessage);
+                if (pub_cmd) m_TwistPublisher->publish(m_TwistMessage);
             }
 
             {
@@ -172,6 +203,14 @@ void Quac::on_gui_frame(GLFWwindow* window)
     if (ImGui::Begin("Control"))
     {
         std::lock_guard<std::mutex> lock(m_InputMutex);
+
+        ImGui::Checkbox("Publish cmd", &m_Input.publish_cmd);
+        if (ImGui::Button("Reset run"))
+        {
+            session_folder = "runs/quac_" + get_time_string() + "/";
+            hazmat_gallery.reset(session_folder + "hazmat_signs/");
+            qrcode_gallery.reset(session_folder + "qrcodes/");
+        }
 
         ImVec2 pos = ImGui::GetCursorScreenPos();
 
