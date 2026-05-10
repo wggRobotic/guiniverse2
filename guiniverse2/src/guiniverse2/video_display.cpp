@@ -20,22 +20,27 @@ VideoDisplay::VideoDisplay(const std::string& name, bool fv, bool fh, bool r, co
             },
             options
         );
+        box_managers[i]->show = true;
+        box_managers[i]->topic = bb_topics[i];
     }
 
     panel_name = name;
-    show_bb = true;
 }
 
 void VideoDisplay::on_gui_frame()
 {
     if (ImGui::Begin(panel_name.c_str()))
     {
-        if (box_managers.size() > 0) ImGui::Checkbox("Bounding boxes", &show_bb);
+        for (int i = 0; i < box_managers.size(); i++)
+        {
+            if (i != 0) ImGui::SameLine(0.0f, 10.0f);
+            ImGui::Checkbox(box_managers[i]->topic.c_str(), &box_managers[i]->show);
+        }
         gui_image.draw();
         for (int i = 0; i < box_managers.size(); i++)
         {
             std::lock_guard<std::mutex> lock(box_managers[i]->mutex);
-            if (show_bb) for (int j = 0; j < box_managers[i]->msg.boxes.size(); j++) gui_image.draw_bounding_box(box_managers[i]->msg.boxes[j]);
+            if (box_managers[i]->show) for (int j = 0; j < box_managers[i]->msg.boxes.size(); j++) gui_image.draw_bounding_box(box_managers[i]->msg.boxes[j]);
         }
     }
     ImGui::End();

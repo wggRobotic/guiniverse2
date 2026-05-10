@@ -15,6 +15,8 @@ public:
     std::mutex mutex;
     rclcpp::Subscription<quac_interfaces::msg::BoundingBoxArray>::SharedPtr subscriber;
     quac_interfaces::msg::BoundingBoxArray msg;
+    bool show;
+    std::string topic;
 };
 
 class VideoDisplay
@@ -31,6 +33,5 @@ protected:
 private:
     std::vector<std::unique_ptr<bounding_box_topic_manager>> box_managers;
 
-    bool show_bb;
     std::string panel_name;
 };

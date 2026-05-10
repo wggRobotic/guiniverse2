@@ -1,5 +1,6 @@
 #pragma once
 
+#include "std_msgs/msg/float64.hpp"
 #include <rclcpp/node.hpp>
 #include <guiniverse2/guiniverse2.hpp>
 #include <guiniverse2/video_display_gst.hpp>
@@ -12,6 +13,7 @@
 #include <rclcpp/time.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/magnetic_field.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -52,6 +54,8 @@ private:
 
     rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr m_ArmPosePublisher;
     geometry_msgs::msg::Pose m_ArmPoseMessage;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_GripperWidthPublisher;
+    std_msgs::msg::Float64 m_GripperWidthMessage;
     rclcpp::TimerBase::SharedPtr cmd_timer;
 
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr m_IPPublisher;
@@ -80,6 +84,8 @@ private:
 
         ImVec2 target_pose;
         bool publish_pose;
+        bool publish_width;
+        float gripper_width = 0.1f; 
 
         std::mutex mutex;
     } m_Arm;

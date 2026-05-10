@@ -7,6 +7,7 @@ services:
     stop_signal: SIGINT
 
     environment:
+      SIM_MODE: ${SIM_MODE}
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: "1"
       ROS_DOMAIN_ID: "187"
@@ -25,5 +26,5 @@ services:
         . /ros2_ws/install/setup.bash && 
         cd /guiniverse2_data && 
         export VIDEO_TARGET_IP=$(ip -4 addr show wlo1 | awk '/inet / {print $2}' | cut -d/ -f1) && 
-        ros2 launch guiniverse2 gui.launch.py
+        ros2 launch guiniverse2 gui.launch.py sim_mode:=${SIM_MODE:-false}
       "

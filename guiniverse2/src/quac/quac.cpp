@@ -70,7 +70,8 @@ Quac::Quac() :
     for (int i = 0; i < 3; i++) { m_Arm.joints[i].index = -1; m_Arm.joints[i].value = 0;}
     
     m_JointStatesSubscriber = node->create_subscription<sensor_msgs::msg::JointState>("joint_states", 10, std::bind(&Quac::jointStateCallback, this, std::placeholders::_1), options);
-    m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pos", 10);
+    m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pose", 10);
+    m_GripperWidthPublisher = node->create_publisher<std_msgs::msg::Float64>("gripper_width", 10);
 
     cmd_timer = node->create_wall_timer(
         std::chrono::milliseconds(20),
@@ -104,6 +105,11 @@ Quac::Quac() :
                     m_ArmPoseMessage.position.z = m_Arm.target_pose.y;
 
                     m_ArmPosePublisher->publish(m_ArmPoseMessage);
+                }
+                if (m_Arm.publish_width)
+                {
+                    m_GripperWidthMessage.data = m_Arm.gripper_width;
+                    m_GripperWidthPublisher->publish(m_GripperWidthMessage);
                 }
             }
         },
@@ -236,8 +242,11 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
         m_Arm.publish_pose = false;
         if (glfwGetKey(window, GLFW_KEY_P)) m_Arm.publish_pose = true;
+        m_Arm.publish_width = false;
+        if (glfwGetKey(window, GLFW_KEY_O)) m_Arm.publish_width = true;
 
         ImGui::Text("target x: %fm   target y: %fm ", m_Arm.target_pose.x, m_Arm.target_pose.y);
+        ImGui::SliderFloat("Gripper width", &m_Arm.gripper_width, 0.0f, 0.1f);
 
         float scalar = 800.f;
         ImVec2 offset = ImVec2(300.f, 250.f);
