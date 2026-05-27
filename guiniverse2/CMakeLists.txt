@@ -45,6 +45,9 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(quac_interfaces REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 find_package(OpenGL REQUIRED) 
 find_package(OpenCV REQUIRED)
@@ -61,9 +64,9 @@ add_executable(gui
   src/guiniverse2/video_display_ros.cpp
   src/guiniverse2/imgui_utils.cpp
   src/guiniverse2/gui_image.cpp
-  src/guiniverse2/video_display.cpp
   src/guiniverse2/detection_gallery.cpp
   src/quac/quac.cpp
+  src/quac/cam_overlay.cpp
 )
 
 target_include_directories(gui PRIVATE
@@ -92,6 +95,9 @@ ament_target_dependencies(gui
   geometry_msgs
   OpenCV
   quac_interfaces
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
 )
 
 install(TARGETS gui

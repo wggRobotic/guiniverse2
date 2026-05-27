@@ -3,16 +3,20 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 
-#include <guiniverse2/video_display.hpp>
+#include <guiniverse2/gui_image.hpp>
 
-class VideoDisplayGST : public VideoDisplay
+class VideoDisplayGST
 {
 public:
     VideoDisplayGST() = delete;
-    VideoDisplayGST(int port, bool fv, bool fh, bool r, const std::vector<std::string>& bb_topics, rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group);
+    VideoDisplayGST(int port, bool fv, bool fh, bool r);
     ~VideoDisplayGST();
 
     void pull_frame();
+    void on_gui_frame(bool* settings_flag);
+
+    GuiImage gui_image;
+    std::string panel_name;
 
 private:
     GstElement *pipeline;

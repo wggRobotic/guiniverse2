@@ -1,4 +1,5 @@
 #include "imgui.h"
+#include "imgui_internal.h"
 #include <mutex>
 #include <guiniverse2/gui_image.hpp>
 #include <GL/gl.h>
@@ -38,14 +39,6 @@ GuiImage::GuiImage(bool fv, bool fh, bool r)
 GuiImage::~GuiImage()
 {
     GLCALL(glDeleteTextures(1, &gl_texture));
-}
-
-ImVec2 GuiImage::uv_calc(ImVec2 uv)
-{
-    if (rotate) uv = ImVec2(1 - uv.y, uv.x);
-    if (flip_horizontally) uv = ImVec2(1 - uv.x, uv.y);
-    if (flip_vertically) uv = ImVec2(uv.x, 1 - uv.y);
-    return uv;
 }
 
 void GuiImage::draw()
@@ -95,34 +88,58 @@ void GuiImage::draw()
 
     ImVec2 cursor = ImGui::GetCursorScreenPos();
 
+    ImVec2 uv[4] =
+    {
+        ImVec2(0.f, rotate ? 1.f : 0.f), 
+        ImVec2(rotate ? 0.f : 1.f, 0.f), 
+        ImVec2(1.f, rotate ? 0.f : 1.f),
+        ImVec2(rotate ? 1.f : 0.f, 1.f), 
+    };
+
+    img_pos = ImVec2(rotate ? display_size.x : 0.f, 0.f);
+    img_u_base = (rotate ? ImVec2(0.f, display_size.y) : ImVec2(display_size.x, 0.f));
+    img_v_base = (rotate ? ImVec2(-display_size.x, 0.f) : ImVec2(0.f, display_size.y));
+
+    if (flip_horizontally)
+    {
+        ImVec2 temp = uv[0];
+        uv[0] = uv[1];
+        uv[1] = temp;
+
+        temp = uv[2];
+        uv[2] = uv[3];
+        uv[3] = temp;
+
+        img_pos = ImVec2(display_size.x - img_pos.x, img_pos.y);
+        img_u_base = ImVec2(-img_u_base.x, img_u_base.y);
+        img_v_base = ImVec2(-img_v_base.x, img_v_base.y);
+    }
+
+    if (flip_vertically)
+    {
+        ImVec2 temp = uv[0];
+        uv[0] = uv[3];
+        uv[3] = temp;
+
+        temp = uv[1];
+        uv[1] = uv[2];
+        uv[2] = temp;
+
+        img_pos = ImVec2(img_pos.x, display_size.y - img_pos.y);
+        img_u_base = ImVec2(img_u_base.x, -img_u_base.y);
+        img_v_base = ImVec2(img_v_base.x, -img_v_base.y);
+    }
+
+    img_pos = ImVec2(img_pos.x + cursor.x, img_pos.y + cursor.y);
+    
     ImGui::GetWindowDrawList()->AddImageQuad(
         (ImTextureID)gl_texture,
         cursor,
         ImVec2(cursor.x + display_size.x, cursor.y),
         ImVec2(cursor.x + display_size.x, cursor.y + display_size.y),
         ImVec2(cursor.x, cursor.y + display_size.y),
-        uv_calc({0, 0}), uv_calc({1, 0}), uv_calc({1, 1}), uv_calc({0, 1}),
+        uv[0], uv[1], uv[2], uv[3],
         IM_COL32_WHITE
-    );
-
-    last_pos = cursor;
-    Last_extent = display_size;
-}
-
-void GuiImage::draw_bounding_box(quac_interfaces::msg::BoundingBox& box)
-{
-    ImVec2 coords[4];
-    for (int i = 0; i < 4; i++)
-    {
-        coords[i] = uv_calc({(float)box.corners[i].x, (float)box.corners[i].y});
-        coords[i] = ImVec2(last_pos.x + coords[i].x * Last_extent.x, last_pos.y + coords[i].y * Last_extent.y);
-    }
-
-    for (int i = 0; i < 4; i++) ImGui::GetWindowDrawList()->AddLine(
-        coords[i],
-        coords[(i + 1) % 4],
-        IM_COL32(255, 0, 0, 255),
-        2.0f
     );
 }
 
@@ -133,4 +150,11 @@ void GuiImage::set_image(cv::Mat& mat, float mat_par)
     dirty = true;
     par = mat_par;
     image = mat;
+}
+
+void GuiImage::get_uv_base(ImVec2& pos, ImVec2& u_base, ImVec2& v_base)
+{
+    pos = img_pos;
+    u_base = img_u_base;
+    v_base = img_v_base;
 }

@@ -1,8 +1,9 @@
-#include "guiniverse2/video_display.hpp"
 #include <guiniverse2/video_display_ros.hpp>
 
-VideoDisplayROS::VideoDisplayROS(rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group, std::string topic, bool fv, bool fh, bool r, const std::vector<std::string>& bb_topics) : VideoDisplay("Ros2 topic " + topic, fv, fh, r, bb_topics, node, group)
+VideoDisplayROS::VideoDisplayROS(rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group, std::string topic, bool fv, bool fh, bool r) : gui_image(fv, fh, r)
 {
+    panel_name = "Ros2 topic " + topic;
+
     rclcpp::SubscriptionOptions options;
     options.callback_group = group;
 
@@ -17,4 +18,14 @@ VideoDisplayROS::VideoDisplayROS(rclcpp::Node::SharedPtr node, rclcpp::CallbackG
         },
         options
     );
+}
+
+void VideoDisplayROS::on_gui_frame(bool* settings_flag)
+{
+    if (ImGui::Begin(panel_name.c_str()))
+    {
+        ImGui::Checkbox("Settings", settings_flag);
+        gui_image.draw();
+    }
+    ImGui::End();
 }

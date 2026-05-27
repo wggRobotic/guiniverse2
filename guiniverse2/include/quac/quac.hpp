@@ -6,6 +6,7 @@
 #include <guiniverse2/video_display_gst.hpp>
 #include <guiniverse2/video_display_ros.hpp>
 #include <guiniverse2/detection_gallery.hpp>
+#include <quac/cam_overlay.hpp>
 
 #include <mutex>
 #include <rclcpp/timer.hpp>
@@ -18,6 +19,9 @@
 #include <sensor_msgs/msg/magnetic_field.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <geometry_msgs/msg/pose.hpp>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 struct arm_joint
 {
@@ -40,12 +44,16 @@ private:
     rclcpp::Node::SharedPtr node;
     rclcpp::CallbackGroup::SharedPtr callback_group;
 
+    tf2_ros::Buffer tf_buffer;
+    tf2_ros::TransformListener tf_listener;
+
     VideoDisplayGST front_cam;
     VideoDisplayGST back_cam;
     VideoDisplayROS thermal_cam;
 
     DetectionGallery hazmat_gallery;
     DetectionGallery qrcode_gallery;
+    DetectionGallery landolt_gallery;
 
     rclcpp::TimerBase::SharedPtr gst_timer;
 
@@ -71,6 +79,9 @@ private:
 
     struct {
         ImVec2 main_axes = ImVec2(0.f, 0.f);
+
+        float lin_x = 0.f, ang_z = 0.f;
+
         float scalar = 0.5f;
         float joystick_scalar = 0.5f;
 
@@ -99,5 +110,10 @@ private:
     } m_SensorData;
 
     std::atomic<bool> running;
-    std::thread thread;   
+    std::thread thread;
+
+    CamOverlay front_cam_overlay;
+    bool show_front_settings;
+    CamOverlay back_cam_overlay;
+    bool show_back_settings;
 };

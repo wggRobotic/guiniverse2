@@ -20,23 +20,32 @@ Quac::Quac() :
     session_folder("runs/quac_" + get_time_string() + "/"),
     node(std::make_shared<rclcpp::Node>("guiniverse", "quac")),
     callback_group(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
-    front_cam(
-        5000, 
-        false, false, false, 
-        {"camera_front/qrcodes/bounding_boxes", "camera_front/hazmat_signs/bounding_boxes", "camera_front/paintrollers/bounding_boxes"},
-        node,
-        callback_group
-    ),
-    back_cam(
-        5001, 
-        false, false, false, 
-        {"camera_back/qrcodes/bounding_boxes", "camera_back/hazmat_signs/bounding_boxes", "camera_back/paintrollers/bounding_boxes"},
-        node,
-        callback_group
-    ),
-    thermal_cam(node, callback_group, "thermal_image/compressed", false, false, true, {}),
+    tf_buffer(node->get_clock()),
+    tf_listener(tf_buffer, node, false),
+    front_cam(5000, false, false, false),
+    back_cam(5001, false, false, false),
+    thermal_cam(node, callback_group, "thermal_image/compressed", false, false, true),
     hazmat_gallery(node, callback_group, "hazmat_signs", session_folder + "hazmat_signs/"),
-    qrcode_gallery(node, callback_group, "qrcodes", session_folder + "qrcodes/")
+    qrcode_gallery(node, callback_group, "qrcodes", session_folder + "qrcodes/"),
+    landolt_gallery(node, callback_group, "landolt_cs", session_folder + "landolt_cs/"),
+    front_cam_overlay(
+        front_cam.panel_name,
+        &front_cam.gui_image, 
+        "camera_front",
+        node,
+        callback_group,
+        &tf_buffer
+    ),
+    show_front_settings(false),
+    back_cam_overlay(
+        back_cam.panel_name,
+        &back_cam.gui_image, 
+        "camera_back",
+        node,
+        callback_group,
+        &tf_buffer
+    ),
+    show_back_settings(false)
 {
     rclcpp::SubscriptionOptions options;
     options.callback_group = callback_group;
@@ -82,10 +91,13 @@ Quac::Quac() :
                     std::lock_guard<std::mutex> lock(m_InputMutex);
                     pub_cmd = m_Input.publish_cmd; 
 
+                    m_Input.lin_x = m_Input.main_axes.y * m_Input.scalar;
+                    m_Input.ang_z = m_Input.main_axes.x * m_Input.scalar * (m_Input.main_axes.y * m_Input.scalar < 0 ? -1.f : 1.f) * 2.f;
+
                     if (m_Input.gas_button)
                     {
-                        m_TwistMessage.linear.x =  m_Input.main_axes.y * m_Input.scalar;
-                        m_TwistMessage.angular.z = m_Input.main_axes.x * m_Input.scalar * (m_Input.main_axes.y * m_Input.scalar < 0 ? -1.f : 1.f) * 2.f;
+                        m_TwistMessage.linear.x = m_Input.lin_x;
+                        m_TwistMessage.angular.z = m_Input.ang_z;
                     }
                     else 
                     {
@@ -216,6 +228,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
             session_folder = "runs/quac_" + get_time_string() + "/";
             hazmat_gallery.reset(session_folder + "hazmat_signs/");
             qrcode_gallery.reset(session_folder + "qrcodes/");
+            landolt_gallery.reset(session_folder + "landolt_cs/");
         }
 
         ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -246,7 +259,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
         if (glfwGetKey(window, GLFW_KEY_O)) m_Arm.publish_width = true;
 
         ImGui::Text("target x: %fm   target y: %fm ", m_Arm.target_pose.x, m_Arm.target_pose.y);
-        ImGui::SliderFloat("Gripper width", &m_Arm.gripper_width, 0.0f, 0.1f);
+        ImGui::SliderFloat("Gripper width", &m_Arm.gripper_width, 0.0f, 0.08f);
 
         float scalar = 800.f;
         ImVec2 offset = ImVec2(300.f, 250.f);
@@ -332,9 +345,15 @@ void Quac::on_gui_frame(GLFWwindow* window)
     }
     ImGui::End();
     
-    front_cam.on_gui_frame();
-    back_cam.on_gui_frame();
-    thermal_cam.on_gui_frame();
+    front_cam.on_gui_frame(&show_front_settings);
+    if (show_front_settings) front_cam_overlay.settings_panel();
+    front_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+    back_cam.on_gui_frame(&show_back_settings);
+    if (show_back_settings) back_cam_overlay.settings_panel();
+    back_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+    bool dummy;
+    thermal_cam.on_gui_frame(&dummy);
     hazmat_gallery.on_gui_frame();
     qrcode_gallery.on_gui_frame();
+    landolt_gallery.on_gui_frame();
 }

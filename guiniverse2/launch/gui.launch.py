@@ -15,6 +15,10 @@ def generate_launch_description():
             executable='gui',
             output='screen',
             parameters=[{'use_sim_time': LaunchConfiguration('sim_mode')}],
-            remappings=[('/clock', 'clock')]
+            remappings=[
+                ('/clock', 'clock'), 
+                ('/tf', 'tf'), 
+                ('/tf_static', 'tf_static'), 
+            ]
         )
     ])

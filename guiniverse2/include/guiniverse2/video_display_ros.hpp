@@ -3,14 +3,19 @@
 #include <rclcpp/node.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <rclcpp/subscription.hpp>
-#include <guiniverse2/video_display.hpp>
+#include <guiniverse2/gui_image.hpp>
 
-class VideoDisplayROS : public VideoDisplay
+class VideoDisplayROS
 {
 public:
     VideoDisplayROS() = delete;
-    VideoDisplayROS(rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group, std::string topic, bool fv, bool fh, bool r, const std::vector<std::string>& bb_topics);
+    VideoDisplayROS(rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group, std::string topic, bool fv, bool fh, bool r);
 
+    void on_gui_frame(bool* settings_flag);
+
+    std::string panel_name;
+    GuiImage gui_image;
+    
 private:
 
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr subscriber;
