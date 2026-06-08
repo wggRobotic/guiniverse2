@@ -1,10 +1,12 @@
 #include "imgui.h"
+#include "sensor_msgs/msg/camera_info.hpp"
 #include <quac_interfaces/msg/bounding_box_array.hpp>
 #include <rclcpp/node.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 
 #include <guiniverse2/gui_image.hpp>
 
@@ -60,4 +62,13 @@ private:
     float fixed_path_length;
 
     tf2::Transform base_to_cam;
+
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr cam_info_subscriber;
+    struct
+    {
+        float fx;
+        float fy;
+        float cx;
+        float cy;
+    } cam_int_devided;
 };

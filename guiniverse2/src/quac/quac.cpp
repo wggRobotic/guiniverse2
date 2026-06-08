@@ -22,7 +22,8 @@ Quac::Quac() :
     callback_group(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
     tf_buffer(node->get_clock()),
     tf_listener(tf_buffer, node, false),
-    front_cam(5000, false, false, false),
+    front_cam(5000, true, true, false),
+    gripper_cam(5002, false, false, false),
     back_cam(5001, false, false, false),
     thermal_cam(node, callback_group, "thermal_image/compressed", false, false, true),
     hazmat_gallery(node, callback_group, "hazmat_signs", session_folder + "hazmat_signs/"),
@@ -37,6 +38,15 @@ Quac::Quac() :
         &tf_buffer
     ),
     show_front_settings(false),
+    gripper_cam_overlay(
+        gripper_cam.panel_name,
+        &gripper_cam.gui_image, 
+        "camera_gripper",
+        node,
+        callback_group,
+        &tf_buffer
+    ),
+    show_gripper_settings(false),
     back_cam_overlay(
         back_cam.panel_name,
         &back_cam.gui_image, 
@@ -54,6 +64,7 @@ Quac::Quac() :
         std::chrono::milliseconds(10),
         [this]() {
             front_cam.pull_frame();
+            gripper_cam.pull_frame();
             back_cam.pull_frame();
         },
         callback_group
@@ -248,10 +259,10 @@ void Quac::on_gui_frame(GLFWwindow* window)
     {
         std::lock_guard<std::mutex> lock(m_Arm.mutex);
 
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pose.y += 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pose.y -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pose.x -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pose.x += 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS && m_Arm.target_pose.y < 0.3) m_Arm.target_pose.y += 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS && m_Arm.target_pose.y > -0.3) m_Arm.target_pose.y -= 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS && m_Arm.target_pose.x > 0) m_Arm.target_pose.x -= 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS && m_Arm.target_pose.x < 0.3) m_Arm.target_pose.x += 0.001f;
 
         m_Arm.publish_pose = false;
         if (glfwGetKey(window, GLFW_KEY_P)) m_Arm.publish_pose = true;
@@ -275,6 +286,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
 #define chasis_line(x_0, y_0, x_1, y_1) imgui_line(ImVec2(offset.x + (x_0) * scalar, offset.y - (y_0) * scalar), ImVec2(offset.x + (x_1) * scalar, offset.y - (y_1) * scalar), IM_COL32(150, 150, 150, 255), 3.f)
 
+        chasis_line(-1, -0.18, 1, -0.18);
         chasis_line(chassis.base_back, chassis.base_y, chassis.base_front, chassis.base_y);
         chasis_line(chassis.base_back, chassis.base_y, chassis.base_back, chassis.base_y + chassis.diaginal_down_y);
         chasis_line(chassis.base_back, chassis.base_y + chassis.diaginal_down_y, chassis.base_back - chassis.diagonal_x, chassis.base_y + chassis.diaginal_down_y + chassis.diagonal_y);
@@ -284,7 +296,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
         angles[1] = - M_PIf / 2;
         angles[2] = - M_PIf / 2 + m_Arm.joints[1].value;
 
-        float segment_lengths[3] = {0.105f, 0.035f, 0.13f};
+        float segment_lengths[3] = {0.1025f, 0.0288f, 0.15f};
         bool received[3] = {m_Arm.joints[0].index != -1, m_Arm.joints[0].index != -1, m_Arm.joints[1].index != -1};
 
         ImVec2 joint = offset;
@@ -348,9 +360,15 @@ void Quac::on_gui_frame(GLFWwindow* window)
     front_cam.on_gui_frame(&show_front_settings);
     if (show_front_settings) front_cam_overlay.settings_panel();
     front_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+
+    gripper_cam.on_gui_frame(&show_gripper_settings);
+    if (show_gripper_settings) gripper_cam_overlay.settings_panel();
+    gripper_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+
     back_cam.on_gui_frame(&show_back_settings);
     if (show_back_settings) back_cam_overlay.settings_panel();
     back_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+
     bool dummy;
     thermal_cam.on_gui_frame(&dummy);
     hazmat_gallery.on_gui_frame();

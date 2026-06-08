@@ -6,11 +6,6 @@
 #include <cstdlib>
 #include <rclcpp/logging.hpp>
 
-constexpr float fx = 602.875f;
-constexpr float fy = 601.773f;
-constexpr float cx = 312.289f;
-constexpr float cy = 246.923f;
-
 constexpr float near_plane = 0.001f;
 
 bounding_box_topic_manager::bounding_box_topic_manager(const std::string& topic, rclcpp::Node::SharedPtr node, rclcpp::CallbackGroup::SharedPtr group)
@@ -20,7 +15,7 @@ bounding_box_topic_manager::bounding_box_topic_manager(const std::string& topic,
 
     subscriber = node->create_subscription<quac_interfaces::msg::BoundingBoxArray>(
         topic, 
-        10, 
+        rclcpp::QoS(1).best_effort().durability_volatile(),
         [this](const quac_interfaces::msg::BoundingBoxArray::SharedPtr msg) {
             std::lock_guard<std::mutex> lock(mutex);
             box_array = *msg;
@@ -75,9 +70,30 @@ paintroller_manager(cam_name + "/paintrollers/bounding_boxes", node, group),
 cam_frame(cam_name + "_color_optical_frame"),
 tf_buffer(buffer)
 {
+    rclcpp::SubscriptionOptions options;
+    options.callback_group = group;
+
+    cam_info_subscriber = node->create_subscription<sensor_msgs::msg::CameraInfo>(
+        cam_name+"/info",
+        10,
+        [this](sensor_msgs::msg::CameraInfo::SharedPtr msg)
+        {
+            cam_int_devided.fx = msg->k[0] / (float)msg->width;
+            cam_int_devided.cx = msg->k[2] / (float)msg->width;
+            cam_int_devided.fy = msg->k[4] / (float)msg->height;
+            cam_int_devided.cy = msg->k[5] / (float)msg->height;
+        },
+        options
+    );
+
     dynamic_robot_path = false;
     dynamic_path_seconds = 5.f;
     fixed_path_length = 2.f;
+
+    cam_int_devided.fx = 602.875f / 640.f;
+    cam_int_devided.fy = 601.773f / 480.f;
+    cam_int_devided.cx = 312.289f / 640.f;
+    cam_int_devided.cy = 246.923f / 480.f;
 }
 
 bool CamOverlay::project_line_points(
@@ -131,12 +147,12 @@ bool CamOverlay::project_line_points(
     {
         float inv_z = 1.0f / p.z();
 
-        float px = fx * (p.x() * inv_z) + cx;
-        float py = fy * (p.y() * inv_z) + cy;
+        float px = cam_int_devided.fx * (p.x() * inv_z) + cam_int_devided.cx;
+        float py = cam_int_devided.fy * (p.y() * inv_z) + cam_int_devided.cy;
 
         return ImVec2(
-            px / static_cast<float>(640),
-            py / static_cast<float>(480)
+            px,
+            py
         );
     };
 
@@ -245,8 +261,7 @@ void CamOverlay::draw(float v_x, float omega_z)
     catch (const tf2::TransformException &ex) { return; }
 
 #define WHEEL_X 0.114
-#define WHEEL_Y 0.0615
-#define MPP 0.02
+#define WHEEL_Y 0.113
 
     ImVec2 wheel_positions[4] = {
         ImVec2(WHEEL_X, WHEEL_Y),
@@ -263,8 +278,8 @@ void CamOverlay::draw(float v_x, float omega_z)
         if (pos_center_cam.z() > near_plane)
         {
             ImVec2 center_uv(
-                (fx * (pos_center_cam.x() / pos_center_cam.z()) + cx) / 640.f,
-                (fy * (pos_center_cam.y() / pos_center_cam.z()) + cy) / 480.f
+                (cam_int_devided.fx * (pos_center_cam.x() / pos_center_cam.z()) + cam_int_devided.cx),
+                (cam_int_devided.fy * (pos_center_cam.y() / pos_center_cam.z()) + cam_int_devided.cy)
             );
 
             if (center_uv.x >= 0.f && center_uv.x <= 1.f && center_uv.y >= 0.f && center_uv.y <= 1.f)

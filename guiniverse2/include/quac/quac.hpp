@@ -48,6 +48,7 @@ private:
     tf2_ros::TransformListener tf_listener;
 
     VideoDisplayGST front_cam;
+    VideoDisplayGST gripper_cam;
     VideoDisplayGST back_cam;
     VideoDisplayROS thermal_cam;
 
@@ -114,6 +115,8 @@ private:
 
     CamOverlay front_cam_overlay;
     bool show_front_settings;
+    CamOverlay gripper_cam_overlay;
+    bool show_gripper_settings;
     CamOverlay back_cam_overlay;
     bool show_back_settings;
 };
