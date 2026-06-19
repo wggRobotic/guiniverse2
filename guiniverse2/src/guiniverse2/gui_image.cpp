@@ -1,5 +1,4 @@
 #include "imgui.h"
-#include "imgui_internal.h"
 #include <mutex>
 #include <guiniverse2/gui_image.hpp>
 #include <GL/gl.h>
@@ -10,6 +9,7 @@
         GLenum err = glGetError(); \
         if (err != GL_NO_ERROR) { \
             fprintf(stderr, "OpenGL error in %s at %s:%d: %d\n", #call, __FILE__, __LINE__, err); \
+            fflush(stderr); \
         } \
     } while (0)
 

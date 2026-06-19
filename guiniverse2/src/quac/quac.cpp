@@ -1,3 +1,4 @@
+#include "guiniverse2/joystick_input.hpp"
 #include "imgui.h"
 #include <memory>
 #include <quac/quac.hpp>
@@ -5,6 +6,7 @@
 #include <rclcpp/executors.hpp>
 #include <thread>
 #include <guiniverse2/imgui_utils.hpp>
+#include <unistd.h>
 
 std::string get_time_string()
 {
@@ -17,6 +19,7 @@ std::string get_time_string()
 }
 
 Quac::Quac() : 
+    joystick_input("DualSense Wireless Controller"),
     session_folder("runs/quac_" + get_time_string() + "/"),
     node(std::make_shared<rclcpp::Node>("guiniverse", "quac")),
     callback_group(node->create_callback_group(rclcpp::CallbackGroupType::Reentrant)),
@@ -29,6 +32,7 @@ Quac::Quac() :
     hazmat_gallery(node, callback_group, "hazmat_signs", session_folder + "hazmat_signs/"),
     qrcode_gallery(node, callback_group, "qrcodes", session_folder + "qrcodes/"),
     landolt_gallery(node, callback_group, "landolt_cs", session_folder + "landolt_cs/"),
+    map_image(false, false, false),
     front_cam_overlay(
         front_cam.panel_name,
         &front_cam.gui_image, 
@@ -60,19 +64,9 @@ Quac::Quac() :
     rclcpp::SubscriptionOptions options;
     options.callback_group = callback_group;
 
-    gst_timer = node->create_wall_timer(
-        std::chrono::milliseconds(10),
-        [this]() {
-            front_cam.pull_frame();
-            gripper_cam.pull_frame();
-            back_cam.pull_frame();
-        },
-        callback_group
-    );
-
     m_IPMessage.data = std::getenv("VIDEO_TARGET_IP") ? std::getenv("VIDEO_TARGET_IP") : "127.0.0.1";
 
-    m_IPPublisher = node->create_publisher<std_msgs::msg::String>("video_target_ip", 10);
+    m_IPPublisher = node->create_publisher<std_msgs::msg::String>("video_target_ip", rclcpp::QoS(2).reliable());
 
     ip_timer = node->create_wall_timer(
         std::chrono::seconds(1),
@@ -84,14 +78,15 @@ Quac::Quac() :
 
     m_Input.gas_button = false;
 
-    m_TwistPublisher = node->create_publisher<geometry_msgs::msg::Twist>("cmd_vel_pilot", 10);
+    m_TwistPublisher = node->create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel_pilot", rclcpp::QoS(2).reliable());
 
     m_Arm.publish_pose = false;
+    m_Arm.target_pose = ImVec2(0.0475f, 0.0288f);
     for (int i = 0; i < 3; i++) { m_Arm.joints[i].index = -1; m_Arm.joints[i].value = 0;}
     
-    m_JointStatesSubscriber = node->create_subscription<sensor_msgs::msg::JointState>("joint_states", 10, std::bind(&Quac::jointStateCallback, this, std::placeholders::_1), options);
-    m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pose", 10);
-    m_GripperWidthPublisher = node->create_publisher<std_msgs::msg::Float64>("gripper_width", 10);
+    m_JointStatesSubscriber = node->create_subscription<sensor_msgs::msg::JointState>("joint_states", rclcpp::QoS(2).reliable(), std::bind(&Quac::jointStateCallback, this, std::placeholders::_1), options);
+    m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pose", rclcpp::QoS(2).reliable());
+    m_GripperWidthPublisher = node->create_publisher<std_msgs::msg::Float64>("gripper_width", rclcpp::QoS(2).reliable());
 
     cmd_timer = node->create_wall_timer(
         std::chrono::milliseconds(20),
@@ -102,18 +97,18 @@ Quac::Quac() :
                     std::lock_guard<std::mutex> lock(m_InputMutex);
                     pub_cmd = m_Input.publish_cmd; 
 
-                    m_Input.lin_x = m_Input.main_axes.y * m_Input.scalar;
-                    m_Input.ang_z = m_Input.main_axes.x * m_Input.scalar * (m_Input.main_axes.y * m_Input.scalar < 0 ? -1.f : 1.f) * 2.f;
+                    m_TwistMessage.header.frame_id = "base_link";
+                    m_TwistMessage.header.stamp = node->now();
 
                     if (m_Input.gas_button)
                     {
-                        m_TwistMessage.linear.x = m_Input.lin_x;
-                        m_TwistMessage.angular.z = m_Input.ang_z;
+                        m_TwistMessage.twist.linear.x = m_Input.cmd_values.x;
+                        m_TwistMessage.twist.angular.z = m_Input.cmd_values.y;
                     }
                     else 
                     {
-                        m_TwistMessage.linear.x = 0;
-                        m_TwistMessage.angular.z = 0;
+                        m_TwistMessage.twist.linear.x = 0;
+                        m_TwistMessage.twist.angular.z = 0;
                     }
                 }
                 if (pub_cmd) m_TwistPublisher->publish(m_TwistMessage);
@@ -140,8 +135,8 @@ Quac::Quac() :
     );
 
     m_ImuSubscriber = node->create_subscription<sensor_msgs::msg::Imu>(
-        "imu", 
-        10, 
+        "camera_front/imu", 
+        rclcpp::QoS(2).best_effort(), 
         [this](const sensor_msgs::msg::Imu::SharedPtr msg) {
             std::lock_guard<std::mutex> lock(m_SensorData.mutex);
             m_SensorData.imu = *msg;
@@ -151,10 +146,103 @@ Quac::Quac() :
     
     m_MagneticFieldSubscriber = node->create_subscription<sensor_msgs::msg::MagneticField>(
         "magnetic_field", 
-        10, 
+        rclcpp::QoS(2).best_effort(), 
         [this](const sensor_msgs::msg::MagneticField::SharedPtr msg) {
             std::lock_guard<std::mutex> lock(m_SensorData.mutex);
             m_SensorData.magnetic_field = *msg;
+        },
+        options
+    );
+
+#define MAP_SCALE_FACTOR 4
+#define TRIM_FACTOR 10
+
+    m_MapSubscriber = node->create_subscription<nav_msgs::msg::OccupancyGrid>(
+        "map",
+        rclcpp::QoS(1),
+        [this](const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+        {
+            int x_min = msg->info.width, x_max = 0, y_min = msg->info.height, y_max = 0;
+
+            for (int y = 0; y < (int)msg->info.height; y += TRIM_FACTOR)
+            {
+                for (int x = 0; x < (int)msg->info.width; x += TRIM_FACTOR)
+                {
+                    if (msg->data[y * msg->info.width + x] != -1)
+                    {
+                        if (x <= x_min) x_min = x - TRIM_FACTOR, 0;
+                        if (x >= x_max) x_max = x + TRIM_FACTOR, (int)msg->info.width;
+                        if (y <= y_min) y_min = y - TRIM_FACTOR, 0;
+                        if (y >= y_max) y_max = y + TRIM_FACTOR, (int)msg->info.height;
+                    }
+                }
+            }
+
+            x_min = std::max(0, x_min - TRIM_FACTOR);
+            x_max = std::min((int)msg->info.width, x_max + TRIM_FACTOR);
+            y_min = std::max(0, y_min - TRIM_FACTOR);
+            y_max = std::min((int)msg->info.height, y_max + TRIM_FACTOR);
+
+
+            if (x_min > x_max || y_min > y_max) return;
+
+            cv::Mat image((y_max - y_min) * MAP_SCALE_FACTOR, (x_max - x_min) * MAP_SCALE_FACTOR, CV_8UC3);
+
+            for (uint32_t y = 0; y < image.rows; y++)
+            {
+                for (uint32_t x = 0; x < image.cols; x++)
+                {
+                    int8_t occ = msg->data[(y / MAP_SCALE_FACTOR + y_min) * msg->info.width + (x / MAP_SCALE_FACTOR + x_min)];
+                    uint8_t value = (occ == -1 ? 127 : 255 - (occ * 255 / 100));
+
+                    image.at<cv::Vec3b>(y, x) = cv::Vec3b(value, value, value);
+                }
+            }
+
+            cv::imwrite(session_folder + "map.png", image);
+
+            quac_interfaces::msg::DetectedObjectArray objects[3];
+            qrcode_gallery.get_objects(objects[0]);
+            landolt_gallery.get_objects(objects[1]);
+            hazmat_gallery.get_objects(objects[2]);
+
+            tf2::Transform grid_to_map;
+            tf2::fromMsg(msg->info.origin, grid_to_map);
+            tf2::Transform map_to_grid = grid_to_map.inverse();
+
+            for (auto& array : objects)
+            {
+                for (auto& object : array.objects)
+                {
+                    tf2::Vector3 p_grid = map_to_grid * tf2::Vector3(object.pose.position.x , object.pose.position.y, 0.0);
+
+                    int col = (p_grid.x() / msg->info.resolution - x_min) * (float)MAP_SCALE_FACTOR;
+                    int row = (p_grid.y() / msg->info.resolution - y_min) * (float)MAP_SCALE_FACTOR;
+
+                    cv::circle(
+                        image,
+                        cv::Point(col, msg->info.height - 1 - row),
+                        MAP_SCALE_FACTOR,
+                        cv::Scalar(255, 0, 0),
+                        -1
+                    );
+
+                    cv::putText(
+                        image, 
+                        object.type, 
+                        cv::Point(col - MAP_SCALE_FACTOR, msg->info.height - 1 - row - 3*MAP_SCALE_FACTOR/2 ),
+                        cv::FONT_HERSHEY_SIMPLEX,
+                        2,
+                        cv::Scalar(255, 255, 255),
+                        2,
+                        cv::LINE_AA
+                    );
+                }
+            }
+
+            cv::imwrite(session_folder + "map_annotated.png", image);
+
+            map_image.set_image(image, 1.f);
         },
         options
     );
@@ -165,12 +253,23 @@ Quac::Quac() :
         executor.add_node(node);
         while (running.load()) executor.spin_some();
     });
+
+    gst_thread = std::thread([this]() {
+        while (running.load())
+        {
+            front_cam.pull_frame();
+            gripper_cam.pull_frame();
+            back_cam.pull_frame();
+            usleep(1000*10);
+        }  
+    });
 }
 
 Quac::~Quac()
 {
     running.store(false);
     thread.join();
+    gst_thread.join();
 }
 
 void Quac::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
@@ -211,29 +310,19 @@ void Quac::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 
 void Quac::on_gui_frame(GLFWwindow* window)
 {
-    {
-        std::lock_guard<std::mutex> lock(m_InputMutex);
-
-        m_Input.main_axes = ImVec2(0.f, 0.f);
-
-        m_Input.gas_button = false;
-
-        if (glfwGetKey(window, GLFW_KEY_A)) m_Input.main_axes.x = 1.f;
-        else if (glfwGetKey(window, GLFW_KEY_D)) m_Input.main_axes.x = -1.f;
-        if (glfwGetKey(window, GLFW_KEY_W)) m_Input.main_axes.y = 1.f;
-        else if (glfwGetKey(window, GLFW_KEY_S)) m_Input.main_axes.y = -1.f;
-
-        float length = sqrtf(m_Input.main_axes.x * m_Input.main_axes.x + m_Input.main_axes.y * m_Input.main_axes.y);
-        if (length > 1.0f) m_Input.main_axes = ImVec2(m_Input.main_axes.x / length, m_Input.main_axes.y / length);
-
-        m_Input.gas_button |= glfwGetKey(window, GLFW_KEY_SPACE);
-    }
 
     if (ImGui::Begin("Control"))
     {
         std::lock_guard<std::mutex> lock(m_InputMutex);
 
+        m_Input.gas_button = false;
+        if (glfwGetKey(window, GLFW_KEY_SPACE)) m_Input.gas_button = true;
+
         ImGui::Checkbox("Publish cmd", &m_Input.publish_cmd);
+        ImGui::Checkbox("Enable publish on gas", &m_Input.enable_publish_on_gas);
+        ImGui::Checkbox("dual joy", &m_Input.dual_joy);
+
+        if (m_Input.gas_button && m_Input.enable_publish_on_gas) m_Input.publish_cmd = true;
         if (ImGui::Button("Reset run"))
         {
             session_folder = "runs/quac_" + get_time_string() + "/";
@@ -242,15 +331,73 @@ void Quac::on_gui_frame(GLFWwindow* window)
             landolt_gallery.reset(session_folder + "landolt_cs/");
         }
 
+        m_Input.cmd_values = ImVec2(0.f, 0.f);
+        ImVec2 forward_joy = ImVec2(0.f, 0.f), backward_joy = ImVec2(0.f, 0.f);
+
+        joystick_input.update();
+        joystick_input.ImGuiPanel("Jostick Input");
+
+        if (joystick_input.getDeviceName() == "DualSense Wireless Controller")
+        {
+            forward_joy.x = -joystick_input.getAxis(1);
+            forward_joy.y = -joystick_input.getAxis(0);
+
+            backward_joy.x = -joystick_input.getAxis(4);
+            backward_joy.y = -joystick_input.getAxis(3);
+
+            if (joystick_input.getButton(5)) m_Input.gas_button = true;
+        }
+
+        if (glfwGetKey(window, GLFW_KEY_S)) forward_joy.x = -1.f;
+        if (glfwGetKey(window, GLFW_KEY_D)) forward_joy.y = -1.f;
+        if (glfwGetKey(window, GLFW_KEY_W)) forward_joy.x = 1.f;
+        if (glfwGetKey(window, GLFW_KEY_A)) forward_joy.y = 1.f;
+
+        if (glfwGetKey(window, GLFW_KEY_G)) backward_joy.x = -1.f;
+        if (glfwGetKey(window, GLFW_KEY_H)) backward_joy.y = -1.f;
+        if (glfwGetKey(window, GLFW_KEY_T)) backward_joy.x = 1.f;
+        if (glfwGetKey(window, GLFW_KEY_F)) backward_joy.y = 1.f;
+
+        float forward_length = sqrtf(forward_joy.x * forward_joy.x + forward_joy.y * forward_joy.y);
+        if (forward_length > 1.0f) forward_joy = ImVec2(forward_joy.x / forward_length, forward_joy.y / forward_length);
+        
+        float backward_length = sqrtf(backward_joy.x * backward_joy.x + backward_joy.y * backward_joy.y);
+        if (backward_length > 1.0f) backward_joy = ImVec2(backward_joy.x / backward_length, backward_joy.y / backward_length);
+
+        if (m_Input.dual_joy)
+        {
+            if (forward_joy.x != 0.f || forward_joy.y != 0.f)
+            {
+                m_Input.cmd_values = forward_joy;
+                if (m_Input.cmd_values.x < 0.f) m_Input.cmd_values.x = 0.f;
+            }
+            else
+            {
+                m_Input.cmd_values = backward_joy;
+                m_Input.cmd_values.y *= -1;
+                if (m_Input.cmd_values.x > 0.f) m_Input.cmd_values.x = 0.f;
+            }
+        }
+        else
+        {
+            m_Input.cmd_values = forward_joy;
+            if (m_Input.cmd_values.x < 0.f) m_Input.cmd_values.y *= -1;
+        }
+
         ImVec2 pos = ImGui::GetCursorScreenPos();
 
-        m_Input.main_axes = imgui_joystick("virtual joystick", 200.f, ImVec2(0.2f, 0.2f), (m_Input.main_axes.x == 0.f && m_Input.main_axes.y == 0.f) ? 0 : &m_Input.main_axes, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
+        imgui_joystick("virtual forwards joystick", 200.f, ImVec2(0.2f, 0.2f), (forward_joy.x == 0.f && forward_joy.y == 0.f) ? 0 : &forward_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
 
-        ImGui::SetCursorScreenPos(ImVec2(pos.x + 220.f, pos.y + ImGui::GetStyle().ItemSpacing.y));
+        ImGui::SameLine(0.0f, 10.0f);
+
+        imgui_joystick("virtual backwards joystick", 200.f, ImVec2(0.2f, 0.2f), (backward_joy.x == 0.f && backward_joy.y == 0.f) ? 0 : &backward_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
+
+        ImGui::SameLine(0.0f, 10.0f);
 
         ImGui::VSliderFloat("##vslider", ImVec2(20, 200), &m_Input.scalar, 0.0f, 1.0f, "%.2f");
 
-        //ImGui::SetCursorScreenPos(ImVec2(pos.x + 260.f, pos.y + ImGui::GetStyle().ItemSpacing.y));
+        m_Input.cmd_values.x *= m_Input.scalar;
+        m_Input.cmd_values.y *= m_Input.scalar * 2.f;
 
     }
     ImGui::End();
@@ -259,10 +406,10 @@ void Quac::on_gui_frame(GLFWwindow* window)
     {
         std::lock_guard<std::mutex> lock(m_Arm.mutex);
 
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS && m_Arm.target_pose.y < 0.3) m_Arm.target_pose.y += 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS && m_Arm.target_pose.y > -0.3) m_Arm.target_pose.y -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS && m_Arm.target_pose.x > 0) m_Arm.target_pose.x -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS && m_Arm.target_pose.x < 0.3) m_Arm.target_pose.x += 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pose.y += 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pose.y -= 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pose.x -= 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pose.x += 0.001f;
 
         m_Arm.publish_pose = false;
         if (glfwGetKey(window, GLFW_KEY_P)) m_Arm.publish_pose = true;
@@ -271,6 +418,10 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
         ImGui::Text("target x: %fm   target y: %fm ", m_Arm.target_pose.x, m_Arm.target_pose.y);
         ImGui::SliderFloat("Gripper width", &m_Arm.gripper_width, 0.0f, 0.08f);
+        if (ImGui::Button("Base")) m_Arm.target_pose = ImVec2(0.0475f, 0.0288f);
+        if (ImGui::Button("Forward0")) m_Arm.target_pose = ImVec2(0.1f, 0.05f);
+
+        m_Arm.target_pose = ImVec2(std::clamp(m_Arm.target_pose.x, 0.f, 0.3f), std::clamp(m_Arm.target_pose.y, -0.3f, 0.3f));
 
         float scalar = 800.f;
         ImVec2 offset = ImVec2(300.f, 250.f);
@@ -356,18 +507,24 @@ void Quac::on_gui_frame(GLFWwindow* window)
         ImGui::Text(buf);
     }
     ImGui::End();
+
+    if (ImGui::Begin("Map"))
+    {
+        map_image.draw();
+    }
+    ImGui::End();
     
     front_cam.on_gui_frame(&show_front_settings);
     if (show_front_settings) front_cam_overlay.settings_panel();
-    front_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+    front_cam_overlay.draw(m_Input.cmd_values.x, m_Input.cmd_values.y);
 
     gripper_cam.on_gui_frame(&show_gripper_settings);
     if (show_gripper_settings) gripper_cam_overlay.settings_panel();
-    gripper_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+    gripper_cam_overlay.draw(m_Input.cmd_values.x, m_Input.cmd_values.y);
 
     back_cam.on_gui_frame(&show_back_settings);
     if (show_back_settings) back_cam_overlay.settings_panel();
-    back_cam_overlay.draw(m_Input.lin_x, m_Input.ang_z);
+    back_cam_overlay.draw(m_Input.cmd_values.x, m_Input.cmd_values.y);
 
     bool dummy;
     thermal_cam.on_gui_frame(&dummy);

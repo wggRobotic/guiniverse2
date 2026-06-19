@@ -1,18 +1,22 @@
 #pragma once
 
+#include "geometry_msgs/msg/twist_stamped.hpp"
+#include "guiniverse2/gui_image.hpp"
+#include "imgui.h"
 #include "std_msgs/msg/float64.hpp"
 #include <rclcpp/node.hpp>
 #include <guiniverse2/guiniverse2.hpp>
 #include <guiniverse2/video_display_gst.hpp>
 #include <guiniverse2/video_display_ros.hpp>
 #include <guiniverse2/detection_gallery.hpp>
+#include <guiniverse2/joystick_input.hpp>
 #include <quac/cam_overlay.hpp>
 
 #include <mutex>
 #include <rclcpp/timer.hpp>
 #include <thread>
 #include <rclcpp/time.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -22,6 +26,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 
 struct arm_joint
 {
@@ -38,6 +43,8 @@ public:
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
     void on_gui_frame(GLFWwindow* window) override;
 private:
+
+    JoystickInput joystick_input;
 
     std::string session_folder;
 
@@ -56,10 +63,8 @@ private:
     DetectionGallery qrcode_gallery;
     DetectionGallery landolt_gallery;
 
-    rclcpp::TimerBase::SharedPtr gst_timer;
-
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr m_TwistPublisher;
-    geometry_msgs::msg::Twist m_TwistMessage;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr m_TwistPublisher;
+    geometry_msgs::msg::TwistStamped m_TwistMessage;
 
     rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr m_ArmPosePublisher;
     geometry_msgs::msg::Pose m_ArmPoseMessage;
@@ -76,18 +81,20 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr m_JointStatesSubscriber;
 
+    rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr m_MapSubscriber;
+    GuiImage map_image;
+
     std::mutex m_InputMutex;
 
     struct {
-        ImVec2 main_axes = ImVec2(0.f, 0.f);
-
-        float lin_x = 0.f, ang_z = 0.f;
+        ImVec2 cmd_values = ImVec2(0, 0);
 
         float scalar = 0.5f;
-        float joystick_scalar = 0.5f;
 
         bool gas_button = false;
         bool publish_cmd = true;
+        bool enable_publish_on_gas = true;
+        bool dual_joy = true;
     } m_Input;
 
     struct
@@ -112,6 +119,7 @@ private:
 
     std::atomic<bool> running;
     std::thread thread;
+    std::thread gst_thread;
 
     CamOverlay front_cam_overlay;
     bool show_front_settings;

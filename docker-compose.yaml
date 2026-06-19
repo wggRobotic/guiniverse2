@@ -5,6 +5,7 @@ services:
       context: .
     network_mode: host
     stop_signal: SIGINT
+    privileged: true
 
     environment:
       SIM_MODE: ${SIM_MODE}

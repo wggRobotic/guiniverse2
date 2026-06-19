@@ -2,6 +2,7 @@
 #include <memory>
 #include <mutex>
 #include <filesystem>
+#include <rclcpp/qos.hpp>
 #include <string>
 #include <fstream>
 
@@ -67,7 +68,23 @@ DetectionGallery::DetectionGallery(rclcpp::Node::SharedPtr node, rclcpp::Callbac
         },
         options
     );
+
+    object_subscriber = node->create_subscription<quac_interfaces::msg::DetectedObjectArray>(
+        topic,
+        rclcpp::QoS(1).best_effort(),
+        [this](quac_interfaces::msg::DetectedObjectArray::ConstSharedPtr msg) {
+            std::lock_guard<std::mutex> lock(object_array_mutex);
+            object_array = *msg;
+        },
+        options
+    );
     
+}
+
+void DetectionGallery::get_objects(quac_interfaces::msg::DetectedObjectArray& objects)
+{
+    std::lock_guard<std::mutex> lock(object_array_mutex);
+    objects = object_array;
 }
 
 void DetectionGallery::reset(const std::string& folder)

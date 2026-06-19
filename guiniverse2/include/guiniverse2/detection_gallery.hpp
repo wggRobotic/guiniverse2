@@ -1,11 +1,13 @@
 #pragma once
 
+#include "quac_interfaces/msg/detected_object_array.hpp"
 #include <memory>
 #include <mutex>
 #include <rclcpp/node.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <guiniverse2/gui_image.hpp>
+#include <quac_interfaces/msg/detected_object_array.hpp>
 #include <vector>
 
 class ImageGalleryImage
@@ -23,6 +25,7 @@ public:
 
     void on_gui_frame();
     void reset(const std::string& folder);
+    void get_objects(quac_interfaces::msg::DetectedObjectArray& objects);
 
 private:
 
@@ -32,6 +35,9 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr image_subscriber;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr json_subscriber;
+    rclcpp::Subscription<quac_interfaces::msg::DetectedObjectArray>::SharedPtr object_subscriber;
+    quac_interfaces::msg::DetectedObjectArray object_array;
+    std::mutex object_array_mutex;
 
     std::string folder_path;
 

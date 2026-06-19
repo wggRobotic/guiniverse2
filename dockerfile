@@ -44,6 +44,7 @@ RUN apt install -y \
   libxkbcommon-dev
 
 RUN apt install iproute2 -y
+RUN apt update
 
 WORKDIR /ros2_ws
 

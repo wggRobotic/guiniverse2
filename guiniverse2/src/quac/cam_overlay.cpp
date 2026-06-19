@@ -75,7 +75,7 @@ tf_buffer(buffer)
 
     cam_info_subscriber = node->create_subscription<sensor_msgs::msg::CameraInfo>(
         cam_name+"/info",
-        10,
+        rclcpp::QoS(2).best_effort(),
         [this](sensor_msgs::msg::CameraInfo::SharedPtr msg)
         {
             cam_int_devided.fx = msg->k[0] / (float)msg->width;

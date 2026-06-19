@@ -50,7 +50,8 @@ void VideoDisplayGST::pull_frame()
     GstCaps* caps = gst_sample_get_caps(sample);
     GstClockTime timestamp = GST_BUFFER_PTS(buffer);
 
-    if (caps && (timestamp != last_frame_timestamp)) {
+    if (caps && (timestamp != last_frame_timestamp))
+    {
         GstStructure* structure = gst_caps_get_structure(caps, 0);
         int width = 0, height = 0, par_num = 1, par_den = 1;
 
@@ -58,10 +59,12 @@ void VideoDisplayGST::pull_frame()
             gst_structure_get_int(structure, "width", &width) &&
             gst_structure_get_int(structure, "height", &height) &&
             gst_structure_get_fraction(structure, "pixel-aspect-ratio", &par_num, &par_den)
-        ) {
+        )
+        {
 
             GstMapInfo map;
-            if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+            if (gst_buffer_map(buffer, &map, GST_MAP_READ))
+            {
                 cv::Mat wrapper_mat(height, width, CV_8UC3, (void*)map.data);
                 cv::Mat image_mat;
                 wrapper_mat.copyTo(image_mat);
