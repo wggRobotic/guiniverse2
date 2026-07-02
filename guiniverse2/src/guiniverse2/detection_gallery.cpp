@@ -77,8 +77,7 @@ DetectionGallery::DetectionGallery(rclcpp::Node::SharedPtr node, rclcpp::Callbac
             object_array = *msg;
         },
         options
-    );
-    
+    );   
 }
 
 void DetectionGallery::get_objects(quac_interfaces::msg::DetectedObjectArray& objects)

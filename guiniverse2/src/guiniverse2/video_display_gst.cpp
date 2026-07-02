@@ -42,7 +42,7 @@ void VideoDisplayGST::pull_frame()
 {
     if (!pipeline) return;
 
-    GstSample* sample = gst_app_sink_try_pull_sample(sink, 10000000); // 10ms timeout
+    GstSample* sample = gst_app_sink_try_pull_sample(sink, 0); // 10ms timeout
 
     if (!sample) return;
 
@@ -61,7 +61,6 @@ void VideoDisplayGST::pull_frame()
             gst_structure_get_fraction(structure, "pixel-aspect-ratio", &par_num, &par_den)
         )
         {
-
             GstMapInfo map;
             if (gst_buffer_map(buffer, &map, GST_MAP_READ))
             {

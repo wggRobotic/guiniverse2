@@ -94,53 +94,6 @@ Quac::Quac() :
     m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pose", rclcpp::QoS(2).reliable());
     m_GripperWidthPublisher = node->create_publisher<std_msgs::msg::Float64>("gripper_width", rclcpp::QoS(2).reliable());
 
-    cmd_timer = node->create_wall_timer(
-        std::chrono::milliseconds(20),
-        [this]() {
-            {
-                bool pub_cmd = false;
-                {
-                    std::lock_guard<std::mutex> lock(m_InputMutex);
-                    pub_cmd = m_Input.publish_cmd; 
-
-                    m_TwistMessage.header.frame_id = "base_link";
-                    m_TwistMessage.header.stamp = node->now();
-
-                    if (m_Input.gas_button)
-                    {
-                        m_TwistMessage.twist.linear.x = m_Input.cmd_values.x;
-                        m_TwistMessage.twist.angular.z = m_Input.cmd_values.y;
-                    }
-                    else 
-                    {
-                        m_TwistMessage.twist.linear.x = 0;
-                        m_TwistMessage.twist.angular.z = 0;
-                    }
-                }
-                if (pub_cmd) m_TwistPublisher->publish(m_TwistMessage);
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(m_Arm.mutex);
-
-                if (m_Arm.publish_pose)
-                {
-                    m_ArmPoseMessage.position.x = m_Arm.target_pos.x;
-                    m_ArmPoseMessage.position.z = m_Arm.target_pos.y;
-                    m_ArmPoseMessage.orientation.y = m_Arm.target_angle;
-
-                    m_ArmPosePublisher->publish(m_ArmPoseMessage);
-                }
-                if (m_Arm.publish_width)
-                {
-                    m_GripperWidthMessage.data = m_Arm.gripper_width;
-                    m_GripperWidthPublisher->publish(m_GripperWidthMessage);
-                }
-            }
-        },
-        callback_group
-    );
-
     m_ImuSubscriber = node->create_subscription<sensor_msgs::msg::Imu>(
         "camera_front/imu", 
         rclcpp::QoS(2).best_effort(), 
@@ -324,8 +277,6 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
     if (ImGui::Begin("Control"))
     {
-        std::lock_guard<std::mutex> lock(m_InputMutex);
-
         m_Input.gas_button = false;
         if (glfwGetKey(window, GLFW_KEY_SPACE)) m_Input.gas_button = true;
 
@@ -423,6 +374,26 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
         m_Input.cmd_values.x *= m_Input.scalar;
         m_Input.cmd_values.y *= m_Input.scalar * 2.f;
+
+   
+        if (m_Input.publish_cmd)
+        {
+            m_TwistMessage.header.frame_id = "base_link";
+            m_TwistMessage.header.stamp = node->now();
+
+            if (m_Input.gas_button)
+            {
+                m_TwistMessage.twist.linear.x = m_Input.cmd_values.x;
+                m_TwistMessage.twist.angular.z = m_Input.cmd_values.y;
+            }
+            else 
+            {
+                m_TwistMessage.twist.linear.x = 0;
+                m_TwistMessage.twist.angular.z = 0;
+            }
+
+            m_TwistPublisher->publish(m_TwistMessage);
+        }
 
     }
     ImGui::End();
@@ -536,6 +507,21 @@ void Quac::on_gui_frame(GLFWwindow* window)
             offset.y - m_Arm.target_pos.y * scalar + panel_pos.y
         ), 4.f, IM_COL32(255, 0, 0, 255));
     
+        {
+            if (m_Arm.publish_pose)
+            {
+                m_ArmPoseMessage.position.x = m_Arm.target_pos.x;
+                m_ArmPoseMessage.position.z = m_Arm.target_pos.y;
+                m_ArmPoseMessage.orientation.y = m_Arm.target_angle;
+
+                m_ArmPosePublisher->publish(m_ArmPoseMessage);
+            }
+            if (m_Arm.publish_width)
+            {
+                m_GripperWidthMessage.data = m_Arm.gripper_width;
+                m_GripperWidthPublisher->publish(m_GripperWidthMessage);
+            }
+        }
     }
     ImGui::End();
 

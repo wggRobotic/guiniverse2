@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 #include <quac/quac.hpp>
+#include <quac/quac_cmd.hpp>
 
 void Guiniverse2::run()
 {
@@ -17,7 +18,7 @@ void Guiniverse2::run()
     if (!window) return;
 
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
+    glfwSwapInterval(0);
     glEnable(GL_MULTISAMPLE);
 
     IMGUI_CHECKVERSION();
@@ -52,10 +53,11 @@ void Guiniverse2::run()
             ImGui::ColorEdit4("Clear Color", clear_color);
             ImGui::Checkbox("Show Styles", &show_styles);
             
-            char* names[] =
+            const char* names[] =
             {
                 "None",
-                "Quac"
+                "Quac",
+                "QuacCmd"
             };
 
             if (ImGui::BeginCombo("Select which robot to control", names[robot_index]))
@@ -104,6 +106,7 @@ void Guiniverse2::run()
                 
             case 0: break;
             case 1: {robot_controller = std::make_shared<Quac>(); break;}
+            case 2: {robot_controller = std::make_shared<QuacCmd>(); break;}
             default: break;
 
             }
