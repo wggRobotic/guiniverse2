@@ -68,6 +68,7 @@ add_executable(gui
   src/guiniverse2/gui_image.cpp
   src/guiniverse2/detection_gallery.cpp
   src/quac/quac.cpp
+  src/quac/quac_cmd.cpp
   src/quac/cam_overlay.cpp
 )
 
