@@ -8,6 +8,16 @@ services:
     privileged: true
 
     environment:
+      CYCLONEDDS_URI: >
+        <CycloneDDS xmlns="https://cdds.io/config">
+          <Domain>
+            <General>
+              <Interfaces>
+                <NetworkInterface name="enx68da73a18af6"/>
+              </Interfaces>
+            </General>
+          </Domain>
+        </CycloneDDS>
       SIM_MODE: ${SIM_MODE}
       DISPLAY: ${DISPLAY}
       QT_X11_NO_MITSHM: "1"
@@ -17,6 +27,7 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./guiniverse2_data:/guiniverse2_data
+      - ./guiniverse2_launch:/ros2_ws/src/guiniverse2_launch:ro
 
     devices:
       - /dev/dri:/dev/dri
@@ -24,8 +35,9 @@ services:
     command: >
       bash -c "
         . /opt/ros/humble/setup.bash && 
+        colcon build --packages-select guiniverse2_launch &&
         . /ros2_ws/install/setup.bash && 
+        export VIDEO_TARGET_IP=$(ip -4 addr show enx68da73a18af6 | awk '/inet / {print $2}' | cut -d/ -f1) && 
         cd /guiniverse2_data && 
-        export VIDEO_TARGET_IP=$(ip -4 addr show wlo1 | awk '/inet / {print $2}' | cut -d/ -f1) && 
-        ros2 launch guiniverse2 gui.launch.py sim_mode:=${SIM_MODE:-false}
+        ros2 launch guiniverse2_launch gui.launch.py sim_mode:=${SIM_MODE:-false}
       "

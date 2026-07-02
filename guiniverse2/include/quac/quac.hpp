@@ -28,10 +28,12 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 
-struct arm_joint
+struct arm_segment
 {
     int index;
     double value;
+    double x;
+    double y;
 };
 
 class Quac : public RobotController
@@ -57,6 +59,8 @@ private:
     VideoDisplayGST front_cam;
     VideoDisplayGST gripper_cam;
     VideoDisplayGST back_cam;
+    VideoDisplayGST left_cam;
+    VideoDisplayGST right_cam;
     VideoDisplayROS thermal_cam;
 
     DetectionGallery hazmat_gallery;
@@ -99,11 +103,13 @@ private:
 
     struct
     {
-        struct arm_joint joints[3];
+        struct arm_segment arm_segments[3];
 
-        ImVec2 target_pose;
+        ImVec2 target_pos;
+        float target_angle;
         bool publish_pose;
         bool publish_width;
+        bool old_arm;
         float gripper_width = 0.1f; 
 
         std::mutex mutex;

@@ -1,9 +1,11 @@
 #include "guiniverse2/joystick_input.hpp"
 #include "imgui.h"
+#include <algorithm>
 #include <memory>
 #include <quac/quac.hpp>
 
 #include <rclcpp/executors.hpp>
+#include <rclcpp/logging.hpp>
 #include <thread>
 #include <guiniverse2/imgui_utils.hpp>
 #include <unistd.h>
@@ -28,6 +30,8 @@ Quac::Quac() :
     front_cam(5000, true, true, false),
     gripper_cam(5002, false, false, false),
     back_cam(5001, false, false, false),
+    left_cam(5003, false, false, false),
+    right_cam(5004, false, false, false),
     thermal_cam(node, callback_group, "thermal_image/compressed", false, false, true),
     hazmat_gallery(node, callback_group, "hazmat_signs", session_folder + "hazmat_signs/"),
     qrcode_gallery(node, callback_group, "qrcodes", session_folder + "qrcodes/"),
@@ -77,12 +81,14 @@ Quac::Quac() :
     );
 
     m_Input.gas_button = false;
+    m_Input.dual_joy = false;
 
     m_TwistPublisher = node->create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel_pilot", rclcpp::QoS(2).reliable());
 
     m_Arm.publish_pose = false;
-    m_Arm.target_pose = ImVec2(0.0475f, 0.0288f);
-    for (int i = 0; i < 3; i++) { m_Arm.joints[i].index = -1; m_Arm.joints[i].value = 0;}
+    m_Arm.target_pos = ImVec2(0.0475f, 0.0288f);
+    m_Arm.old_arm = false;
+    for (int i = 0; i < 3; i++) { m_Arm.arm_segments[i].index = -1; m_Arm.arm_segments[i].value = 0;}
     
     m_JointStatesSubscriber = node->create_subscription<sensor_msgs::msg::JointState>("joint_states", rclcpp::QoS(2).reliable(), std::bind(&Quac::jointStateCallback, this, std::placeholders::_1), options);
     m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pose", rclcpp::QoS(2).reliable());
@@ -119,8 +125,9 @@ Quac::Quac() :
 
                 if (m_Arm.publish_pose)
                 {
-                    m_ArmPoseMessage.position.x = m_Arm.target_pose.x;
-                    m_ArmPoseMessage.position.z = m_Arm.target_pose.y;
+                    m_ArmPoseMessage.position.x = m_Arm.target_pos.x;
+                    m_ArmPoseMessage.position.z = m_Arm.target_pos.y;
+                    m_ArmPoseMessage.orientation.y = m_Arm.target_angle;
 
                     m_ArmPosePublisher->publish(m_ArmPoseMessage);
                 }
@@ -219,22 +226,24 @@ Quac::Quac() :
                     int col = (p_grid.x() / msg->info.resolution - x_min) * (float)MAP_SCALE_FACTOR;
                     int row = (p_grid.y() / msg->info.resolution - y_min) * (float)MAP_SCALE_FACTOR;
 
+                    RCLCPP_INFO(node->get_logger(), "drawing circle at %d %d", col, row);
+
                     cv::circle(
                         image,
-                        cv::Point(col, msg->info.height - 1 - row),
-                        MAP_SCALE_FACTOR,
-                        cv::Scalar(255, 0, 0),
+                        cv::Point(col, row),
+                        MAP_SCALE_FACTOR / 2,
+                        cv::Scalar(0, 111, 255),
                         -1
                     );
 
                     cv::putText(
                         image, 
-                        object.type, 
-                        cv::Point(col - MAP_SCALE_FACTOR, msg->info.height - 1 - row - 3*MAP_SCALE_FACTOR/2 ),
+                        object.header.frame_id, 
+                        cv::Point(col - MAP_SCALE_FACTOR, row - MAP_SCALE_FACTOR ),
                         cv::FONT_HERSHEY_SIMPLEX,
-                        2,
-                        cv::Scalar(255, 255, 255),
-                        2,
+                        0.4,
+                        cv::Scalar(0, 0, 255),
+                        1,
                         cv::LINE_AA
                     );
                 }
@@ -260,7 +269,9 @@ Quac::Quac() :
             front_cam.pull_frame();
             gripper_cam.pull_frame();
             back_cam.pull_frame();
-            usleep(1000*10);
+            left_cam.pull_frame();
+            right_cam.pull_frame();
+            usleep(2000*10);
         }  
     });
 }
@@ -274,32 +285,32 @@ Quac::~Quac()
 
 void Quac::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
-    std::string joint_names[3] = {"arm_servo_0_joint", "arm_servo_1_joint", "arm_servo_0_joint"};
+    std::string joint_names[4] = {"arm_segment_0_joint", "arm_segment_1_joint", "arm_segment_2_joint"};
 
     std::lock_guard<std::mutex> lock(m_Arm.mutex);
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < (m_Arm.old_arm ? 2 : 3); i++)
     {
-        if (m_Arm.joints[i].index != -1)
+        if (m_Arm.arm_segments[i].index != -1)
         {
-            if (m_Arm.joints[i].index < msg->name.size())
-                if (msg->name[m_Arm.joints[i].index] == joint_names[i])
+            if (m_Arm.arm_segments[i].index < msg->name.size())
+                if (msg->name[m_Arm.arm_segments[i].index] == joint_names[i])
                 {
-                    m_Arm.joints[i].value = msg->position[m_Arm.joints[i].index];
+                    m_Arm.arm_segments[i].value = msg->position[m_Arm.arm_segments[i].index];
                     continue;
                 }
 
-            m_Arm.joints[i].index = -1;
+            m_Arm.arm_segments[i].index = -1;
         }
         
-        if (m_Arm.joints[i].index == -1)
+        if (m_Arm.arm_segments[i].index == -1)
         {
             for (int j = 0; j < msg->name.size(); j++)
             {
                 if (msg->name[j] == joint_names[i])
                 {
-                    m_Arm.joints[i].index = j;
-                    m_Arm.joints[i].value = msg->position[j];
+                    m_Arm.arm_segments[i].index = j;
+                    m_Arm.arm_segments[i].value = msg->position[j];
                 }
             }
         }
@@ -337,6 +348,8 @@ void Quac::on_gui_frame(GLFWwindow* window)
         joystick_input.update();
         joystick_input.ImGuiPanel("Jostick Input");
 
+        bool invert_cmd = false;
+
         if (joystick_input.getDeviceName() == "DualSense Wireless Controller")
         {
             forward_joy.x = -joystick_input.getAxis(1);
@@ -346,6 +359,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
             backward_joy.y = -joystick_input.getAxis(3);
 
             if (joystick_input.getButton(5)) m_Input.gas_button = true;
+            if (joystick_input.getButton(7)) invert_cmd = true;
         }
 
         if (glfwGetKey(window, GLFW_KEY_S)) forward_joy.x = -1.f;
@@ -363,6 +377,12 @@ void Quac::on_gui_frame(GLFWwindow* window)
         
         float backward_length = sqrtf(backward_joy.x * backward_joy.x + backward_joy.y * backward_joy.y);
         if (backward_length > 1.0f) backward_joy = ImVec2(backward_joy.x / backward_length, backward_joy.y / backward_length);
+
+        if (forward_joy.x > -0.2f && forward_joy.x < 0.1f) forward_joy.x = 0.f;
+        if (forward_joy.y > -0.1f && forward_joy.y < 0.1f) forward_joy.y = 0.f;
+
+        if (backward_joy.x > -0.1f && backward_joy.x < 0.1f) backward_joy.x = 0.f;
+        if (backward_joy.y > -0.1f && backward_joy.y < 0.1f) backward_joy.y = 0.f;
 
         if (m_Input.dual_joy)
         {
@@ -384,13 +404,18 @@ void Quac::on_gui_frame(GLFWwindow* window)
             if (m_Input.cmd_values.x < 0.f) m_Input.cmd_values.y *= -1;
         }
 
+        if (invert_cmd)
+        {
+            m_Input.cmd_values.x *=-1;
+        }
+
         ImVec2 pos = ImGui::GetCursorScreenPos();
 
-        imgui_joystick("virtual forwards joystick", 200.f, ImVec2(0.2f, 0.2f), (forward_joy.x == 0.f && forward_joy.y == 0.f) ? 0 : &forward_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
+        imgui_joystick("virtual forwards joystick", 200.f, ImVec2(0.0f, 0.0f), (forward_joy.x == 0.f && forward_joy.y == 0.f) ? 0 : &forward_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
 
         ImGui::SameLine(0.0f, 10.0f);
 
-        imgui_joystick("virtual backwards joystick", 200.f, ImVec2(0.2f, 0.2f), (backward_joy.x == 0.f && backward_joy.y == 0.f) ? 0 : &backward_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
+        imgui_joystick("virtual backwards joystick", 200.f, ImVec2(0.0f, 0.0f), (backward_joy.x == 0.f && backward_joy.y == 0.f) ? 0 : &backward_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
 
         ImGui::SameLine(0.0f, 10.0f);
 
@@ -406,55 +431,92 @@ void Quac::on_gui_frame(GLFWwindow* window)
     {
         std::lock_guard<std::mutex> lock(m_Arm.mutex);
 
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pose.y += 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pose.y -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pose.x -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pose.x += 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pos.y += 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pos.y -= 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pos.x -= 0.001f;
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pos.x += 0.001f;
 
         m_Arm.publish_pose = false;
         if (glfwGetKey(window, GLFW_KEY_P)) m_Arm.publish_pose = true;
         m_Arm.publish_width = false;
         if (glfwGetKey(window, GLFW_KEY_O)) m_Arm.publish_width = true;
 
-        ImGui::Text("target x: %fm   target y: %fm ", m_Arm.target_pose.x, m_Arm.target_pose.y);
+        ImGui::Text("target x: %fm   target y: %fm ", m_Arm.target_pos.x, m_Arm.target_pos.y);
         ImGui::SliderFloat("Gripper width", &m_Arm.gripper_width, 0.0f, 0.08f);
-        if (ImGui::Button("Base")) m_Arm.target_pose = ImVec2(0.0475f, 0.0288f);
-        if (ImGui::Button("Forward0")) m_Arm.target_pose = ImVec2(0.1f, 0.05f);
+        ImGui::SliderFloat("Target angle", &m_Arm.target_angle, -1.7f, 1.7f);
+        if (ImGui::Button("copy gripper angle")) m_Arm.target_angle = m_Arm.arm_segments[0].value + m_Arm.arm_segments[1].value + m_Arm.arm_segments[2].value;
+        if (ImGui::Button("zero gripper angle")) m_Arm.target_angle = 0.f;
+        ImGui::Checkbox("Old Arm", &m_Arm.old_arm);
+        if (ImGui::Button("Base"))
+        {
+            m_Arm.target_pos = ImVec2(-0.12f, 0.05f);
+            m_Arm.target_angle = 0.0;
+        }
+        if (ImGui::Button("Forward0")) m_Arm.target_pos = ImVec2(0.1f, 0.05f);
+        if (ImGui::Button("ButtonSide")) { m_Arm.target_pos = ImVec2(0.134559f, 0.021273f); m_Arm.target_angle = -0.763;} 
 
-        m_Arm.target_pose = ImVec2(std::clamp(m_Arm.target_pose.x, 0.f, 0.3f), std::clamp(m_Arm.target_pose.y, -0.3f, 0.3f));
+        m_Arm.target_pos = ImVec2(std::clamp(m_Arm.target_pos.x, -0.12f, 0.3f), std::clamp(m_Arm.target_pos.y, -0.3f, 0.3f));
+
+        if (m_Arm.target_pos.x < 0.03)
+        {
+            m_Arm.target_pos.y = std::max(m_Arm.target_pos.y, 0.0f);
+            m_Arm.target_angle = std::max(m_Arm.target_angle, 0.0f);
+        }
 
         float scalar = 800.f;
         ImVec2 offset = ImVec2(300.f, 250.f);
 
         struct {
-            float base_front = 0.01f;
-            float base_back = -0.07f;
+            float base_front = -0.01f;
+            float base_back = -0.09f;
             float base_y = -0.015f;
             float diaginal_down_y = 0.01f;
-            float diagonal_x = 0.065;
+            float diagonal_x = 0.063;
             float diagonal_y = 0.08f;
         } chassis;
 
 #define chasis_line(x_0, y_0, x_1, y_1) imgui_line(ImVec2(offset.x + (x_0) * scalar, offset.y - (y_0) * scalar), ImVec2(offset.x + (x_1) * scalar, offset.y - (y_1) * scalar), IM_COL32(150, 150, 150, 255), 3.f)
 
-        chasis_line(-1, -0.18, 1, -0.18);
+        chasis_line(-1.02, -0.18, 0.98, -0.18);
         chasis_line(chassis.base_back, chassis.base_y, chassis.base_front, chassis.base_y);
         chasis_line(chassis.base_back, chassis.base_y, chassis.base_back, chassis.base_y + chassis.diaginal_down_y);
         chasis_line(chassis.base_back, chassis.base_y + chassis.diaginal_down_y, chassis.base_back - chassis.diagonal_x, chassis.base_y + chassis.diaginal_down_y + chassis.diagonal_y);
 
-        float angles[3];
-        angles[0] = M_PIf + m_Arm.joints[0].value;
-        angles[1] = - M_PIf / 2;
-        angles[2] = - M_PIf / 2 + m_Arm.joints[1].value;
+        float angles[6];
+        float segment_lengths[6];
+        if (m_Arm.old_arm)
+        {
+            angles[0] = M_PIf + m_Arm.arm_segments[0].value;
+            angles[1] = - M_PIf / 2;
+            angles[2] = - M_PIf / 2 + m_Arm.arm_segments[1].value;
 
-        float segment_lengths[3] = {0.1025f, 0.0288f, 0.15f};
-        bool received[3] = {m_Arm.joints[0].index != -1, m_Arm.joints[0].index != -1, m_Arm.joints[1].index != -1};
+            segment_lengths[0] = 0.1025f;
+            segment_lengths[1] = 0.0288f;
+            segment_lengths[2] = 0.15f;
+        }
+        else
+        {
+            angles[0] = M_PI + m_Arm.arm_segments[0].value;
+            angles[1] = m_Arm.arm_segments[1].value;
+            angles[2] = - M_PI / 2.0;
+            angles[3] = - M_PI / 2 + m_Arm.arm_segments[2].value;
+            angles[4] = - M_PI / 2.0;
+            angles[5] =  M_PI / 2.0;
+
+            segment_lengths[0] = 0.1f;
+            segment_lengths[1] = 0.02f;
+            segment_lengths[2] = 0.05f;
+            segment_lengths[3] = 0.05f;
+            segment_lengths[4] = 0.015f;
+            segment_lengths[5] = 0.11f;
+        }
+        
 
         ImVec2 joint = offset;
 
         float angle = 0;
 
-        for ( int i = 0; i < 3; i++ )
+        for ( int i = 0; i < (m_Arm.old_arm ? 3 : 6); i++ )
         {
             angle += angles[i];
             ImVec2 next_joint = ImVec2(cos(angle) * segment_lengths[i] * scalar + joint.x, -sin(angle) * segment_lengths[i] * scalar + joint.y);
@@ -462,15 +524,17 @@ void Quac::on_gui_frame(GLFWwindow* window)
             imgui_line(joint, next_joint, IM_COL32(200, 200, 200, 255), 4.f);
     
             joint = next_joint;
+
+            if (i == 2) if (ImGui::Button("copy gripper pos")) m_Arm.target_pos = ImVec2((joint.x - offset.x) / scalar, (joint.y - offset.y) / scalar);
         }
 
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
         ImVec2 panel_pos = ImGui::GetWindowPos();
     
         draw_list->AddCircleFilled(ImVec2(
-                offset.x + m_Arm.target_pose.x * scalar + panel_pos.x, 
-                offset.y - m_Arm.target_pose.y * scalar + panel_pos.y
-            ), 4.f, IM_COL32(255, 0, 0, 255));
+            offset.x + m_Arm.target_pos.x * scalar + panel_pos.x, 
+            offset.y - m_Arm.target_pos.y * scalar + panel_pos.y
+        ), 4.f, IM_COL32(255, 0, 0, 255));
     
     }
     ImGui::End();
@@ -514,6 +578,8 @@ void Quac::on_gui_frame(GLFWwindow* window)
     }
     ImGui::End();
     
+    bool dummy;
+    
     front_cam.on_gui_frame(&show_front_settings);
     if (show_front_settings) front_cam_overlay.settings_panel();
     front_cam_overlay.draw(m_Input.cmd_values.x, m_Input.cmd_values.y);
@@ -526,7 +592,9 @@ void Quac::on_gui_frame(GLFWwindow* window)
     if (show_back_settings) back_cam_overlay.settings_panel();
     back_cam_overlay.draw(m_Input.cmd_values.x, m_Input.cmd_values.y);
 
-    bool dummy;
+    left_cam.on_gui_frame(&dummy);
+    right_cam.on_gui_frame(&dummy);
+
     thermal_cam.on_gui_frame(&dummy);
     hazmat_gallery.on_gui_frame();
     qrcode_gallery.on_gui_frame();
