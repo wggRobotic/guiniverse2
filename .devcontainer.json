@@ -1,0 +1,6 @@
+{
+  "dockerComposeFile": "docker-compose.yaml",
+  "service": "guiniverse2",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose"
+}
