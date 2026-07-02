@@ -1,6 +1,6 @@
 FROM ros:humble
 
-SHELL ["/bin/bash", "-c"]
+SHELL ["/bin/sh", "-c"]
 
 RUN apt update
 RUN apt install -y ros-humble-cv-bridge ros-humble-image-transport ros-humble-compressed-image-transport
@@ -49,7 +49,7 @@ RUN apt update
 WORKDIR /ros2_ws
 
 RUN git clone https://github.com/wggRobotic/quac-interfaces.git src/quac-interfaces
-RUN . /opt/ros/humble/setup.bash && colcon build
+RUN . /opt/ros/humble/setup.sh && colcon build
 
 COPY ./guiniverse2 src/guiniverse2
-RUN . /opt/ros/humble/setup.bash && . install/setup.bash && colcon build
+RUN . /opt/ros/humble/setup.sh && . install/setup.sh && colcon build
