@@ -91,7 +91,7 @@ Quac::Quac() :
     for (int i = 0; i < 3; i++) { m_Arm.arm_segments[i].index = -1; m_Arm.arm_segments[i].value = 0;}
     
     m_JointStatesSubscriber = node->create_subscription<sensor_msgs::msg::JointState>("joint_states", rclcpp::QoS(2).reliable(), std::bind(&Quac::jointStateCallback, this, std::placeholders::_1), options);
-    m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose>("ee_pose", rclcpp::QoS(2).reliable());
+    m_ArmPosePublisher = node->create_publisher<geometry_msgs::msg::Pose2D>("ee_pose", rclcpp::QoS(2).reliable());
     m_GripperWidthPublisher = node->create_publisher<std_msgs::msg::Float64>("gripper_width", rclcpp::QoS(2).reliable());
 
     m_ImuSubscriber = node->create_subscription<sensor_msgs::msg::Imu>(
@@ -236,6 +236,8 @@ Quac::~Quac()
     gst_thread.join();
 }
 
+// Joint states callback for Arm state display
+
 void Quac::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
     std::string joint_names[4] = {"arm_segment_0_joint", "arm_segment_1_joint", "arm_segment_2_joint"};
@@ -271,12 +273,17 @@ void Quac::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     
 }
 
+// called every gui frame
 
 void Quac::on_gui_frame(GLFWwindow* window)
 {
 
+    // Driving controll
+
     if (ImGui::Begin("Control"))
     {
+        // gathering input and drawing scene
+
         m_Input.gas_button = false;
         if (glfwGetKey(window, GLFW_KEY_SPACE)) m_Input.gas_button = true;
 
@@ -375,6 +382,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
         m_Input.cmd_values.x *= m_Input.scalar;
         m_Input.cmd_values.y *= m_Input.scalar * 2.f;
 
+        // publishing twist message if enabled
    
         if (m_Input.publish_cmd)
         {
@@ -398,14 +406,25 @@ void Quac::on_gui_frame(GLFWwindow* window)
     }
     ImGui::End();
 
+    // Controlling and visualising the robotic arm
+
     if (ImGui::Begin("Robotic arm"))
     {
         std::lock_guard<std::mutex> lock(m_Arm.mutex);
 
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pos.y += 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pos.y -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pos.x -= 0.001f;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pos.x += 0.001f;
+        // gather input
+
+        double time = node->now().seconds();
+        if (m_Arm.last_time == 0) m_Arm.last_time = time;
+        double dt = time - m_Arm.last_time;
+        m_Arm.last_time = time;
+
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pos.y += 0.05f * dt;
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pos.y -= 0.05f * dt;
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pos.x -= 0.05f * dt;
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pos.x += 0.05f * dt;
+
+        // special settings and positions
 
         m_Arm.publish_pose = false;
         if (glfwGetKey(window, GLFW_KEY_P)) m_Arm.publish_pose = true;
@@ -426,13 +445,10 @@ void Quac::on_gui_frame(GLFWwindow* window)
         if (ImGui::Button("Forward0")) m_Arm.target_pos = ImVec2(0.1f, 0.05f);
         if (ImGui::Button("ButtonSide")) { m_Arm.target_pos = ImVec2(0.134559f, 0.021273f); m_Arm.target_angle = -0.763;} 
 
-        m_Arm.target_pos = ImVec2(std::clamp(m_Arm.target_pos.x, -0.12f, 0.3f), std::clamp(m_Arm.target_pos.y, -0.3f, 0.3f));
+        m_Arm.target_pos = ImVec2(std::clamp(m_Arm.target_pos.x, 0.02f, 0.4f), std::clamp(m_Arm.target_pos.y, -0.2f, 0.3f));
 
-        if (m_Arm.target_pos.x < 0.03)
-        {
-            m_Arm.target_pos.y = std::max(m_Arm.target_pos.y, 0.0f);
-            m_Arm.target_angle = std::max(m_Arm.target_angle, 0.0f);
-        }
+        // draw visualisation
+        // robot outline
 
         float scalar = 800.f;
         ImVec2 offset = ImVec2(300.f, 250.f);
@@ -483,6 +499,8 @@ void Quac::on_gui_frame(GLFWwindow* window)
         }
         
 
+        // arm diagramm
+
         ImVec2 joint = offset;
 
         float angle = 0;
@@ -507,12 +525,14 @@ void Quac::on_gui_frame(GLFWwindow* window)
             offset.y - m_Arm.target_pos.y * scalar + panel_pos.y
         ), 4.f, IM_COL32(255, 0, 0, 255));
     
+        // publish pose
+
         {
             if (m_Arm.publish_pose)
             {
-                m_ArmPoseMessage.position.x = m_Arm.target_pos.x;
-                m_ArmPoseMessage.position.z = m_Arm.target_pos.y;
-                m_ArmPoseMessage.orientation.y = m_Arm.target_angle;
+                m_ArmPoseMessage.x = m_Arm.target_pos.x;
+                m_ArmPoseMessage.y = m_Arm.target_pos.y;
+                m_ArmPoseMessage.theta = m_Arm.target_angle;
 
                 m_ArmPosePublisher->publish(m_ArmPoseMessage);
             }
@@ -524,6 +544,8 @@ void Quac::on_gui_frame(GLFWwindow* window)
         }
     }
     ImGui::End();
+
+    // Display sensor data
 
     if (ImGui::Begin("Sensor Data"))
     {
@@ -566,6 +588,8 @@ void Quac::on_gui_frame(GLFWwindow* window)
     
     bool dummy;
     
+    // cameras and camera overlays
+
     front_cam.on_gui_frame(&show_front_settings);
     if (show_front_settings) front_cam_overlay.settings_panel();
     front_cam_overlay.draw(m_Input.cmd_values.x, m_Input.cmd_values.y);

@@ -22,7 +22,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/magnetic_field.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/pose2_d.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -56,6 +56,8 @@ private:
     tf2_ros::Buffer tf_buffer;
     tf2_ros::TransformListener tf_listener;
 
+    // Video displays
+
     VideoDisplayGST front_cam;
     VideoDisplayGST gripper_cam;
     VideoDisplayGST back_cam;
@@ -63,30 +65,44 @@ private:
     VideoDisplayGST right_cam;
     VideoDisplayROS thermal_cam;
 
+    // Galleries of detected objects
+
     DetectionGallery hazmat_gallery;
     DetectionGallery qrcode_gallery;
     DetectionGallery landolt_gallery;
 
+    // Driving
+
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr m_TwistPublisher;
     geometry_msgs::msg::TwistStamped m_TwistMessage;
 
-    rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr m_ArmPosePublisher;
-    geometry_msgs::msg::Pose m_ArmPoseMessage;
+    // Arm and Gripper
+
+    rclcpp::Publisher<geometry_msgs::msg::Pose2D>::SharedPtr m_ArmPosePublisher;
+    geometry_msgs::msg::Pose2D m_ArmPoseMessage;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_GripperWidthPublisher;
     std_msgs::msg::Float64 m_GripperWidthMessage;
     rclcpp::TimerBase::SharedPtr cmd_timer;
+
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr m_JointStatesSubscriber;
+
+    // Ip publisher so cameras know where to stream to
 
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr m_IPPublisher;
     std_msgs::msg::String m_IPMessage;
     rclcpp::TimerBase::SharedPtr ip_timer;
 
+    // Imu data
+
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr m_ImuSubscriber;
     rclcpp::Subscription<sensor_msgs::msg::MagneticField>::SharedPtr m_MagneticFieldSubscriber;
 
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr m_JointStatesSubscriber;
+    // map display
 
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr m_MapSubscriber;
     GuiImage map_image;
+
+    // Driving input
 
     std::mutex m_InputMutex;
 
@@ -101,6 +117,8 @@ private:
         bool dual_joy = true;
     } m_Input;
 
+    // Arm control
+    
     struct
     {
         struct arm_segment arm_segments[3];
@@ -113,7 +131,10 @@ private:
         float gripper_width = 0.1f; 
 
         std::mutex mutex;
+        double last_time = 0;
     } m_Arm;
+
+    // imu and magnetic field data to display
 
     struct
     {
@@ -123,9 +144,13 @@ private:
         sensor_msgs::msg::MagneticField magnetic_field;
     } m_SensorData;
 
+    //threading
+
     std::atomic<bool> running;
     std::thread thread;
     std::thread gst_thread;
+
+    // camera overlays for bounding boxes and driving path lines
 
     CamOverlay front_cam_overlay;
     bool show_front_settings;
