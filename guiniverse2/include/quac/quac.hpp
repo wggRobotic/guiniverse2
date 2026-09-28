@@ -123,15 +123,16 @@ private:
     {
         struct arm_segment arm_segments[3];
 
-        ImVec2 target_pos;
-        float target_angle;
-        bool publish_pose;
-        bool publish_width;
-        bool old_arm;
+        ImVec2 target_pos = ImVec2(0.f, 0.f);
+        float target_angle = 0.f;
+        bool publish_pose = false;
+        bool publish_width = false;
+        bool old_arm = false;
         float gripper_width = 0.1f; 
 
         std::mutex mutex;
         double last_time = 0;
+        float cursor_speed = 0.05;
     } m_Arm;
 
     // imu and magnetic field data to display

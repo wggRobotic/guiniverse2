@@ -416,13 +416,16 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
         double time = node->now().seconds();
         if (m_Arm.last_time == 0) m_Arm.last_time = time;
-        double dt = time - m_Arm.last_time;
+        float dt = time - m_Arm.last_time;
         m_Arm.last_time = time;
 
-        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pos.y += 0.05f * dt;
-        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pos.y -= 0.05f * dt;
-        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pos.x -= 0.05f * dt;
-        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pos.x += 0.05f * dt;
+        ImGui::SliderFloat("cursor speed", &m_Arm.cursor_speed, 0.01f, 0.1f);
+        float delta = dt * m_Arm.cursor_speed;
+
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) m_Arm.target_pos.y = std::min(m_Arm.target_pos.y + delta, 0.2f);
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) m_Arm.target_pos.y = std::max(m_Arm.target_pos.y - delta, m_Arm.target_pos.x < 0.08f ? 0.05f : -0.12f);
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) m_Arm.target_pos.x = std::min(m_Arm.target_pos.x + delta, 0.25f);
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) m_Arm.target_pos.x = std::max(m_Arm.target_pos.x - delta, m_Arm.target_pos.y < 0.05f ? 0.08f : -0.12f);
 
         // special settings and positions
 
@@ -445,7 +448,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
         if (ImGui::Button("Forward0")) m_Arm.target_pos = ImVec2(0.1f, 0.05f);
         if (ImGui::Button("ButtonSide")) { m_Arm.target_pos = ImVec2(0.134559f, 0.021273f); m_Arm.target_angle = -0.763;} 
 
-        m_Arm.target_pos = ImVec2(std::clamp(m_Arm.target_pos.x, 0.02f, 0.4f), std::clamp(m_Arm.target_pos.y, -0.2f, 0.3f));
+        if (m_Arm.target_pos.x < 0.f && m_Arm.target_angle < 0.f) m_Arm.target_angle = 0.f;
 
         // draw visualisation
         // robot outline
@@ -514,7 +517,7 @@ void Quac::on_gui_frame(GLFWwindow* window)
     
             joint = next_joint;
 
-            if (i == 2) if (ImGui::Button("copy gripper pos")) m_Arm.target_pos = ImVec2((joint.x - offset.x) / scalar, (joint.y - offset.y) / scalar);
+            if (i == 2) if (ImGui::Button("copy gripper pos")) m_Arm.target_pos = ImVec2((joint.x - offset.x) / scalar, (offset.y - joint.y) / scalar);
         }
 
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
