@@ -2,7 +2,7 @@
 #include <unistd.h>
 
 #include <quac/quac.hpp>
-#include <quac/quac_cmd.hpp>
+#include <idefix/idefix.hpp>
 
 void Guiniverse2::run()
 {
@@ -57,7 +57,7 @@ void Guiniverse2::run()
             {
                 "None",
                 "Quac",
-                "QuacCmd"
+                "Idefix",
             };
 
             if (ImGui::BeginCombo("Select which robot to control", names[robot_index]))
@@ -106,7 +106,7 @@ void Guiniverse2::run()
                 
             case 0: break;
             case 1: {robot_controller = std::make_shared<Quac>(); break;}
-            case 2: {robot_controller = std::make_shared<QuacCmd>(); break;}
+            case 2: {robot_controller = std::make_shared<Idefix>(); break;}
             default: break;
 
             }

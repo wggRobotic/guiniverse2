@@ -20,7 +20,7 @@ private:
 
     bool m_InputDevicesConnected[GLFW_JOYSTICK_LAST + 1];
     std::string m_InputDeviceNames[GLFW_JOYSTICK_LAST + 1];
-    bool m_InvertAxes[GLFW_JOYSTICK_LAST + 1][16] = {{true, true, false, true}};
+    bool m_InvertAxes[GLFW_JOYSTICK_LAST + 1][16]{};
     int m_InputDeviceSelected = 0;
 
     bool m_RefreshButton = true;

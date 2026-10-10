@@ -278,7 +278,10 @@ void Quac::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 void Quac::on_gui_frame(GLFWwindow* window)
 {
 
-    // Driving controll
+    // Driving control
+    
+    joystick_input.update();
+    joystick_input.ImGuiPanel("Jostick Input");
 
     if (ImGui::Begin("Control"))
     {
@@ -302,9 +305,6 @@ void Quac::on_gui_frame(GLFWwindow* window)
 
         m_Input.cmd_values = ImVec2(0.f, 0.f);
         ImVec2 forward_joy = ImVec2(0.f, 0.f), backward_joy = ImVec2(0.f, 0.f);
-
-        joystick_input.update();
-        joystick_input.ImGuiPanel("Jostick Input");
 
         bool invert_cmd = false;
 

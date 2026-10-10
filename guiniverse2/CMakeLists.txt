@@ -4,6 +4,8 @@ project(guiniverse2)
 cmake_policy(SET CMP0072 NEW)
 set(OpenGL_GL_PREFERENCE GLVND)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -67,9 +69,12 @@ add_executable(gui
   src/guiniverse2/imgui_utils.cpp
   src/guiniverse2/gui_image.cpp
   src/guiniverse2/detection_gallery.cpp
+
   src/quac/quac.cpp
   src/quac/quac_cmd.cpp
   src/quac/cam_overlay.cpp
+
+  src/idefix/idefix.cpp
 )
 
 target_include_directories(gui PRIVATE
