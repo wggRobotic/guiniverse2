@@ -1,10 +1,4 @@
-#include "imgui.h"
-#include "std_msgs/msg/float64.hpp"
-#include "std_msgs/msg/string.hpp"
 #include <idefix/idefix.hpp>
-
-#include <guiniverse2/imgui_utils.hpp>
-#include <unistd.h>
 
 Idefix::Idefix() : joystick_input("DualSense Wireless Controller"), node(std::make_shared<rclcpp::Node>("guiniverse"))
 {
@@ -13,29 +7,26 @@ Idefix::Idefix() : joystick_input("DualSense Wireless Controller"), node(std::ma
     m_TwistStampedPublisher = node->create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel_stamped", 2);
     m_GaitModePublisher = node->create_publisher<std_msgs::msg::String>("gait_mode", 2);
     m_GaitDurationPublisher = node->create_publisher<std_msgs::msg::Float64>("gait_duration", 2);
+
+    m_PosePublisher = node->create_publisher<geometry_msgs::msg::PoseStamped>("cmd_pose", 2);
+    m_TargetHeightPublisher = node->create_publisher<std_msgs::msg::Float64>("cmd_height", 2);
 }
 
-Idefix::~Idefix()
-{
-
-}
-
-// called every gui frame
+Idefix::~Idefix() {}
 
 void Idefix::on_gui_frame(GLFWwindow* window)
 {
-
-    // Driving controll
-
     joystick_input.update();
     joystick_input.ImGuiPanel("Jostick Input");
 
     if (ImGui::Begin("Control"))
     {
-        // gathering input and drawing scene
-
         if (glfwGetKey(window, GLFW_KEY_Z)) m_Input.lock_input = true;
         ImGui::Checkbox("Lock Input", &m_Input.lock_input);
+
+        ImGui::SameLine(0.0f, 100.0f);
+        if (ImGui::Button("Zero pose")) {m_Input.roll = 0; m_Input.pitch = 0; m_Input.yaw = 0;}
+
         ImGui::Checkbox("Stamped", &m_Input.stamped);
         ImGui::Checkbox("Publish cmd", &m_Input.publish_cmd);
         ImGui::Checkbox("Enable publish on gas", &m_Input.enable_publish_on_gas);
@@ -107,12 +98,22 @@ void Idefix::on_gui_frame(GLFWwindow* window)
         imgui_joystick("virtual linear joystick", 200.f, ImVec2(0.0f, 0.0f), (m_Input.lin_joy.x == 0.f && m_Input.lin_joy.y == 0.f) ? 0 : &m_Input.lin_joy, (m_Input.gas_button ? IM_COL32(150, 150, 150, 255) : (80, 80, 80, 255)));
 
         ImGui::SameLine(0.0f, 10.0f);
-
-        ImGui::VSliderFloat("##vslider", ImVec2(20, 200), &m_Input.scalar, 0.05f, 0.3f, "%.2f");
+        ImGui::VSliderFloat("speed", ImVec2(20, 200), &m_Input.scalar, 0.05f, 0.3f, "%.2f");
 
         ImGui::SameLine(0.0f, 10.0f);
+        ImGui::VSliderFloat("gait\ntime", ImVec2(20, 200), &gait_duration_slider, 0.3f, 2.0f, "%.2f");
 
-        ImGui::VSliderFloat("##vslider_gait_duration", ImVec2(20, 200), &gait_duration_slider, 0.3f, 2.0f, "%.2f");
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::VSliderFloat("roll", ImVec2(20, 200), &m_Input.roll, -0.8f, 0.8f, "%.2f");
+
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::VSliderFloat("pitch", ImVec2(20, 200), &m_Input.pitch, -0.8f, 0.8f, "%.2f");
+
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::VSliderFloat("yaw", ImVec2(20, 200), &m_Input.yaw, -0.4f, 0.4f, "%.2f");
+
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::VSliderFloat("height", ImVec2(20, 200), &m_Input.target_height, 0.05f, 0.3f, "%.2f");
 
         ImVec4 twist_values = {m_Input.lin_joy.x * m_Input.ang_joy.x, m_Input.lin_joy.y * m_Input.ang_joy.x, m_Input.ang_joy.y, 0.0};
 
@@ -124,8 +125,6 @@ void Idefix::on_gui_frame(GLFWwindow* window)
             twist_values.y *= -1;
         }
 
-        // publishing twist message if enabled
-   
         if (m_Input.publish_cmd)
         {
             m_TwistStampedMessage.header.frame_id = "base_link";
@@ -147,6 +146,27 @@ void Idefix::on_gui_frame(GLFWwindow* window)
             if (m_Input.stamped) m_TwistStampedPublisher->publish(m_TwistStampedMessage);
             else m_TwistPublisher->publish(m_TwistStampedMessage.twist);
         }
+
+        m_PoseMessage.header.frame_id = "base_link";
+        m_PoseMessage.header.stamp = node->now();
+
+        m_PoseMessage.pose.position.x = 0;
+        m_PoseMessage.pose.position.y = 0;
+        m_PoseMessage.pose.position.z = 0;
+
+        double cr = cos(m_Input.roll * 0.5), sr = sin(m_Input.roll * 0.5);
+        double cp = cos(m_Input.pitch * 0.5), sp = sin(m_Input.pitch * 0.5);
+        double cy = cos(m_Input.yaw * 0.5), sy = sin(m_Input.yaw * 0.5);
+
+        m_PoseMessage.pose.orientation.w = cr * cp * cy + sr * sp * sy;
+        m_PoseMessage.pose.orientation.x = sr * cp * cy - cr * sp * sy;
+        m_PoseMessage.pose.orientation.y = cr * sp * cy + sr * cp * sy;
+        m_PoseMessage.pose.orientation.z = cr * cp * sy - sr * sp * cy;
+
+        m_PosePublisher->publish(m_PoseMessage);
+
+        m_TargetHeightMessage.data = m_Input.target_height;
+        m_TargetHeightPublisher->publish(m_TargetHeightMessage);
 
         const char* gait_names[] = {"trot", "walk", "amble"};
 
